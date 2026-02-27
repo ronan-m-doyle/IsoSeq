@@ -4,7 +4,7 @@
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
-source "$(dirname "$0")/isoseq_pipeline_config_v06.sh"
+source "$(dirname "$0")/isoseq_pipeline_config.sh"
 
 SAMPLESHEET="$1"
 THREADS="$2"
