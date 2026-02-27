@@ -1,0 +1,2 @@
+# synnovis_isolate_sequencing_pipeline
+Bacterial isolate sequencing bioinformatics pipeline.
