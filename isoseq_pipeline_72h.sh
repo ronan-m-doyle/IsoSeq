@@ -234,7 +234,7 @@ for idx in "${!SAMPLES[@]}"; do
     # ---------------- STEP 13: Variant calling with Clair3 ----------------
     step="variant_calling"; step_start=$(date +%s)
     log "Calling variants for $sample against $REF_SAMPLE and outputting VCF";
-    if ! conda run -n clair3 run_clair3.sh \
+    if ! conda run -n $ENV_CLAIR3 run_clair3.sh \
             --bam_fn="${mlst_tree_dir}/${bam}" \
             --ref_fn="$REF_FASTA" \
             --threads="$THREADS" \
@@ -272,7 +272,7 @@ for idx in "${!SAMPLES[@]}"; do
     step="recombination"; step_start=$(date +%s)
     # Remove intermediate folders that are made by a failed gubbins run
     rm -vrf ${PWD}/tmp*
-    if ! conda run -n gubbins run_gubbins.py --threads "$THREADS" \
+    if ! conda run -n $ENV_GUBBINS run_gubbins.py --threads "$THREADS" \
             -p "${mlst_tree_dir}/ST${sequence_type}" \
             --first-tree-builder "iqtree-fast"  \
             --tree-builder "iqtree" \
@@ -289,7 +289,7 @@ for idx in "${!SAMPLES[@]}"; do
 
     # ---------------- STEP 16: Generate tree image ----------------
     step="tree"; step_start=$(date +%s)
-    conda run -n gubbins plot_gubbins.R -t "${mlst_tree_dir}/ST${sequence_type}.node_labelled.final_tree.tre" \
+    conda run -n $ENV_GUBBINS plot_gubbins.R -t "${mlst_tree_dir}/ST${sequence_type}.node_labelled.final_tree.tre" \
         -r "${mlst_tree_dir}/ST${sequence_type}.recombination_predictions.gff" \
         -o "${sample_dir}/ST${sequence_type}.node_labelled.final_tree.png" \
         --taxon-label-size "2" \
