@@ -39,19 +39,19 @@ fi
 
 # ---------------------- PIPELINE LOG DIR -----------------------
 RUN_NAME=$(basename "$RUN_DIR")
-mkdir -p "${HOME}/isolate_sequencing/pipeline_logs"
+mkdir -p "pipeline_logs"
 RUN_TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
-touch "${HOME}/isolate_sequencing/pipeline_logs/pipeline_summary_${RUN_NAME}_${RUN_TIMESTAMP}.tsv"
-MASTER_SUMMARY="${HOME}/isolate_sequencing/pipeline_logs/pipeline_summary_${RUN_NAME}_${RUN_TIMESTAMP}.tsv"
+touch "pipeline_logs/pipeline_summary_${RUN_NAME}_${RUN_TIMESTAMP}.tsv"
+MASTER_SUMMARY="pipeline_logs/pipeline_summary_${RUN_NAME}_${RUN_TIMESTAMP}.tsv"
 echo -e "Sample\tStatus\tFailed_Step\tTotal_Time(s)" > "$MASTER_SUMMARY"
 
 echo "Monitoring sequencing run..."
 echo "Summary file: $SUMMARY_FILE"
 
-STAGE1_FLAG="${HOME}/isolate_sequencing/pipeline_logs/.8h_complete_${RUN_NAME}"
-STAGE2_FLAG="${HOME}/isolate_sequencing/pipeline_logs/.24h_complete_${RUN_NAME}"
-STAGE3_FLAG="${HOME}/isolate_sequencing/pipeline_logs/.48h_complete_${RUN_NAME}"
-STAGE4_FLAG="${HOME}/isolate_sequencing/pipeline_logs/.72h_complete_${RUN_NAME}"
+STAGE1_FLAG="pipeline_logs/.8h_complete_${RUN_NAME}"
+STAGE2_FLAG="pipeline_logs/.24h_complete_${RUN_NAME}"
+STAGE3_FLAG="pipeline_logs/.48h_complete_${RUN_NAME}"
+STAGE4_FLAG="pipeline_logs/.72h_complete_${RUN_NAME}"
 
 while true; do
 
@@ -80,7 +80,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 28800 )) && [[ ! -f "$STAGE1_FLAG" ]]; then
         echo "▶ Running 8h analysis"
-        ./isoseq_pipeline_8h_v06.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        ./isoseq_pipeline_8h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE1_FLAG"
     fi
 
@@ -89,7 +89,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 86400 )) && [[ ! -f "$STAGE2_FLAG" ]]; then
         echo "▶ Running 24h analysis"
-        ./isoseq_pipeline_24h_v06.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        ./isoseq_pipeline_24h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE2_FLAG"
     fi
 
@@ -98,7 +98,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 172800 )) && [[ ! -f "$STAGE3_FLAG" ]]; then
         echo "▶ Running 48h analysis"
-        ./isoseq_pipeline_48h_v06.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        ./isoseq_pipeline_48h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE3_FLAG"
     fi
 
@@ -107,7 +107,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 258000 )) && [[ ! -f "$STAGE4_FLAG" ]]; then
         echo "▶ Running 72h analysis"
-        ./isoseq_pipeline_72h_v06.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        ./isoseq_pipeline_72h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE4_FLAG"
         echo "All stages complete. Exiting monitor."
         break
