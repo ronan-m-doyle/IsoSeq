@@ -9,7 +9,7 @@
 set -eo pipefail
 
 # First check binaries
-for b in autocycler flye.sh raven.sh; do
+for b in autocycler scripts/flye.sh scripts/raven.sh; do
     command -v $b >/dev/null 2>&1 || { echo 2>&1 "ERROR: $b not found, was Autocycler installed correctly?"; exit 1; }
 done
 
@@ -173,7 +173,7 @@ for reads in "${READ_FILES[@]}"; do
             echo
             echo "Assembling set $i with $assembler  -----------"
             echo
-            ${assembler}.sh ${subsampled_reads}/sample_0${i}.fastq ${assemblies}/${assembler}_0${i} $THREADS $genome_size
+            scripts/${assembler}.sh ${subsampled_reads}/sample_0${i}.fastq ${assemblies}/${assembler}_0${i} $THREADS $genome_size
         done
     done
     rm -rf $subsampled_reads  # Remove reads directory to save disk space
