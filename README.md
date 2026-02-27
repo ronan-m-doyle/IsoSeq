@@ -15,4 +15,7 @@ mamba create -n gubbins -c bioconda gubbins
 mamba create -n clair3 -c bioconda clair3
 
 wget "https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_08_GB_20251015.tar.gz"
+mkdir kraken_reference/
+tar -xzvf k2_pluspf_08_GB_20251015.tar.gz -C kraken_reference/
+rm k2_pluspf_08_GB_20251015.tar.gz
 ```
