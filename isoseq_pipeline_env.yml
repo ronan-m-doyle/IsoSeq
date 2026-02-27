@@ -22,4 +22,5 @@ dependencies:
   - bedtools=2.31.1
   - snp-dists=1.2.0
   - porechop==0.2.4
+  - setuptools=75.6.0
 prefix: $HOME/miniforge3
