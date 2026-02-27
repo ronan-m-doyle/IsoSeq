@@ -1,61 +1,46 @@
 #!/usr/bin/env bash
-# -------------------------------------------------------------
-# Refactored Isolate Sequencing Pipeline (stable logging version)
-# -------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Isolate Sequencing Pipeline
+# ----------------------------------------------------------------------
 IFS=$'\n\t'
 
 # -------------------------- CONFIG ----------------------------
-KRAKEN2_DB="/home/ronan/reference_genomes/kraken2_db/"
-PY_KRAKEN_SUMMARY="/home/ronan/useful_scripts/kraken2_top5_species.py"
-MULTIQC_CONFIG="$HOME/isolate_sequencing/multiqc_config.yaml"
-TREE_BASE="/home/ronan/isolate_sequencing"
-
-# -------------------------- LOGGING ----------------------------
-LOGFILE="pipeline.log"
-SUMMARY_FILE="pipeline_summary.tsv"
-log() { echo -e "[$(date '+%F %T')] $*" | tee -a "$LOGFILE"; }
+KRAKEN2_DB="${HOME}/reference_genomes/kraken2_db/"
+PY_KRAKEN_SUMMARY="${HOME}/useful_scripts/kraken2_top5_species.py"
+MULTIQC_CONFIG="${HOME}/isolate_sequencing/multiqc_config.yaml"
+TREE_BASE="${HOME}/isolate_sequencing"
+KROCUS_DB="${HOME}/isolate_sequencing/mlst_krocus/"
 
 # -------------------------- ARG PARSE --------------------------
-run_directory=""
-output_directory=""
+THREADS=1
 SAMPLESHEET=""
-THREADS=20
+RUN_DIR=""
 
 while [[ $# -gt 0 ]]; do
     key="$1"
     case $key in
-        --run_directory) run_directory="$2"; shift; shift ;;
-        --output_directory) output_directory="$2"; shift; shift ;;
         --samplesheet) SAMPLESHEET="$2"; shift; shift ;;
         --threads) THREADS="$2"; shift; shift ;;
+        --rundir) RUN_DIR="$2"; shift; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-if [[ -z "$run_directory" || -z "$output_directory" || -z "$SAMPLESHEET" ]]; then
-    log "❌ ERROR: Must specify --run_directory, --output_directory, --samplesheet"
+if [[ -z "$SAMPLESHEET" || -z "$THREADS" || -z "$RUN_DIR" ]]; then
+    echo "❌ ERROR: Must specify --samplesheet, --threads, --rundir"
     exit 1
 fi
 
-run_directory=$(realpath "$run_directory")
-output_directory=$(realpath "$output_directory")
+RUN_DIR=$(realpath "$RUN_DIR")
+[[ -d "$RUN_DIR" ]] || { echo "Run directory not found"; exit 1; }
+
 SAMPLESHEET=$(realpath "$SAMPLESHEET")
-
-[[ -f "$SAMPLESHEET" ]] || { log "❌ ERROR: Samplesheet not found"; exit 1; }
-
-mkdir -p "$output_directory"
-cd "$output_directory" || { log "❌ Cannot cd to $output_directory"; exit 1; }
-
-log "Pipeline started:"
-log " Run dir:  $run_directory"
-log " Output:   $output_directory"
-log " Samplesheet: $SAMPLESHEET"
-log " Threads:  $THREADS"
+[[ -f "$SAMPLESHEET" ]] || { echo "Samplesheet not found"; exit 1; }
 
 # -------------------------- ENVS -------------------------------
 ENV_MLST="mlst_contigs"
 ENV_PROKKA="prokka"
-ENV_AMRFINDER="amrfinder"
+ENV_ABRITAMR="abritamr"
 
 # ----------------------- DICTIONARIES --------------------------
 declare -A species_dict_read_mlst=(
@@ -82,7 +67,7 @@ declare -A species_dict_mlst_contigs=(
     ["Pseudomonas aeruginosa"]="paeruginosa"
 )
 
-declare -A species_dict_prokka=(
+declare -A species_dict_amrfinder=(
     ["Acinetobacter baumannii"]="Acinetobacter_baumannii"
     ["Escherichia coli"]="Escherichia"
     ["Klebsiella pneumoniae"]="Klebsiella_pneumoniae"
@@ -123,214 +108,200 @@ SAMPLES=(); BARCODES=(); ORGANISMS=()
 while IFS=, read -r barcode sample organism; do
     [[ "$barcode" == "barcode" || -z "$barcode" ]] && continue
     if [[ -z "${species_dict_read_mlst[$organism]:-}" ]]; then
-        log "❌ Unknown organism: $organism"; exit 1
+        echo "❌ Unknown organism: $organism"; exit 1
     fi
-    BARCODES+=("$barcode"); SAMPLES+=("$sample"); ORGANISMS+=("$organism")
+    SAMPLES+=("$sample")
+    BARCODES+=("$barcode")
+    ORGANISMS+=("$organism")
 done < "$SAMPLESHEET"
 
-declare -A sample_status sample_step sample_time_start sample_time_end
+# ---------------------- PIPELINE LOG DIR -----------------------
+mkdir -p pipeline_logs
+RUN_TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+MASTER_SUMMARY="pipeline_logs/pipeline_summary_${RUN_TIMESTAMP}.tsv"
+echo -e "Sample\tStatus\tFailed_Step\tTotal_Time(s)" > "$MASTER_SUMMARY"
 
 # ============================================================== 
 # PER-SAMPLE PIPELINE 
 # ============================================================== 
+
 for idx in "${!SAMPLES[@]}"; do
     sample="${SAMPLES[$idx]}"
     barcode="${BARCODES[$idx]}"
     organism="${ORGANISMS[$idx]}"
-    log "-------------------------------------------------------------"
-    log "▶ Processing sample: $sample ($organism)"
+
+    sample_dir="${sample}"
+    mkdir -p "$sample_dir/logs"
+    LOGFILE="${sample_dir}/logs/pipeline.log"
+
+    log() { echo -e "[$(date '+%F %T')] $*" | tee -a "$LOGFILE"; }
+
+    log "========== Processing sample: $sample ($organism) =========="
     start_total=$(date +%s)
-    sample_status["$sample"]="OK"
-    sample_step["$sample"]="started"
+    status="OK"; failed_step="-"
 
-    # ---------- Step 1: Concatenate ----------
-    step_start=$(date +%s)
-    src_pattern="$run_directory/*/*/fastq_pass/barcode${barcode}/*.fastq.gz"
-    out_file="${sample}.fastq.gz"
-    shopt -s nullglob; files=( $src_pattern )
+    # ---------------- STEP 1: Concatenate ----------------
+    step="concat"; step_start=$(date +%s)
+    log "▶ Step $step"
+    src_pattern="${RUN_DIR}/**/fastq_pass/barcode${barcode}/*.fastq.gz"
+    shopt -s globstar nullglob
+    files=( $src_pattern )
     if (( ${#files[@]} == 0 )); then
-        log "⚠️ No FASTQ for barcode${barcode}"
-        sample_status["$sample"]="FAILED"; sample_step["$sample"]="concat"; continue
-    fi
-    log "Concatenating ${#files[@]} → $out_file"
-    if ! cat "${files[@]}" > "$out_file" 2>>"$LOGFILE"; then
-        log "❌ concat failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="concat"; continue
-    fi
-    step_end=$(date +%s); log "✅ Step concat done in $((step_end-step_start))s"
-
-    # ---------- Step 2: Porechop and Nanostat ----------
-    mkdir -p trimmed qc
-    step_start=$(date +%s)
-    fq="${sample}.fastq.gz"; out_trim="trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split 2>>"$LOGFILE"; then
-        log "❌ Porechop failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="porechop"; continue
-    fi
-    NanoStat --fastq "$out_trim" -n "qc/${sample}_nanostat.txt" -t "$THREADS" >>"$LOGFILE" 2>&1
-    rm -f "$fq"
-    step_end=$(date +%s); log "✅ Step trim done in $((step_end-step_start))s"
-
-    # ---------- Step 3: Kraken2 ----------
-    mkdir -p kraken2
-    step_start=$(date +%s)
-    kraken_out="kraken2/${sample}.k2output"
-    kraken_report="kraken2/${sample}.k2report"
-    if ! kraken2 --db "$KRAKEN2_DB" --threads "$THREADS" \
-        --output "$kraken_out" --report "$kraken_report" --use-names "trimmed/${sample}.fastq.gz" >>"$LOGFILE" 2>&1; then
-        log "❌ Kraken2 failed"
-        sample_status["$sample"]="FAILED"
-        sample_step["$sample"]="kraken2"
+        log "⚠️ No FASTQ found for barcode${barcode}"
+        status="FAILED"; failed_step="$step"
+        echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
         continue
     fi
+    log "Concatenating ${#files[@]} fastq files → ${sample_dir}/${sample}.fastq.gz"
+    if !  cat "${files[@]}" > "${sample_dir}/${sample}.fastq.gz"; then
+       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 3.1: Kraken species check ----------
-    [[ -f "$PY_KRAKEN_SUMMARY" ]] && python3 "$PY_KRAKEN_SUMMARY" 2>>"$LOGFILE"
+    # ---------------- STEP 2: Porechop & NanoStat ----------------
+    step="porechop_nanostat"; step_start=$(date +%s)
+    log "▶ Step $step"
+    mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
+    fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
+    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS" >>"$LOGFILE" 2>&1
+    rm -f "$fq"
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    kraken_summary="kraken2_top5_per_sample.csv"
+    # ---------------- STEP 3: Kraken2 ----------------
+    step="kraken2"; step_start=$(date +%s)
+    log "▶ Step $step"
+    mkdir -p ${sample_dir}/kraken2
+    kraken_out="${sample_dir}/kraken2/kraken2_output.tsv"
+    kraken_report="${sample_dir}/kraken2/kraken2_report.tsv"
+    if ! kraken2 --db "$KRAKEN2_DB" --threads "$THREADS" --output "$kraken_out" --report "$kraken_report" --use-names "${sample_dir}/trimmed/${sample}.fastq.gz" >> "$LOGFILE" 2>&1; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    cd ${sample_dir}/
+    [[ -f "$PY_KRAKEN_SUMMARY" ]] && python3 "$PY_KRAKEN_SUMMARY"
+    cd ..
+    kraken_summary="${sample_dir}/kraken2_top5_taxa.csv"
     if [[ -f "$kraken_summary" ]]; then
-        # Get top hit (first line for that sample)
-        top_hit=$(awk -F, -v s="$sample" 'NR>1 && $1==s {print $2; exit}' "$kraken_summary")
-        if [[ -z "$top_hit" ]]; then
-            log "⚠️ No top hit found in Kraken summary for $sample"
+        top_hit=$(awk -F, 'NR>1 && $1 {print $2; exit}' "$kraken_summary")
+        if [[ "$top_hit" != "$organism" ]]; then
+            log "❌ Species mismatch: expected $organism, got $top_hit"; status="FAILED"; failed_step="species_mismatch"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
         else
-            log "🔍 Kraken top hit for $sample: $top_hit (expected: $organism)"
-            if [[ "$top_hit" != "$organism" ]]; then
-                log "❌ Species mismatch for $sample — expected '$organism' but found '$top_hit'"
-                sample_status["$sample"]="FAILED"
-                sample_step["$sample"]="species_mismatch"
-                # Skip remaining steps for this sample
-                continue
-            else
-                log "✅ Species match confirmed for $sample"
+                log "✅ Species match confirmed for $sample: $top_hit (expected: $organism)"
             fi
-        fi
-    else
-        log "⚠️ Kraken summary file not found for $sample"
+        else
+        log "⚠️ Kraken summary file not found for $sample"; continue
     fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    step_end=$(date +%s)
-    log "✅ Step kraken2 done in $((step_end-step_start))s"
-
-    # ---------- Step 4: Read-based MLST ----------
-    mkdir -p mlst_reads
-    rm -f "mlst_reads/${sample}_krocusmlst.tsv"
-    step_start=$(date +%s)
+    # ---------------- STEP 4: Read-based MLST ----------------
+    step="mlst_reads"; step_start=$(date +%s)
+    log "▶ Step $step"
+    mkdir -p ${sample_dir}/mlst_reads
+    rm -f ${sample_dir}/"mlst_reads/krocusmlst.tsv" # Remove any previous runs, baisically an overwrite
+    pigz -dc "${sample_dir}/trimmed/${sample}.fastq.gz" > "${sample_dir}/mlst_reads/${sample}.fastq" # decompress fastq
+    head -n200000 "${sample_dir}/mlst_reads/${sample}.fastq" > "${sample_dir}/mlst_reads/${sample}_krocus.fastq" # Take first 50,000 reads only
+    rm -f "${sample_dir}/mlst_reads/${sample}.fastq" # Remove intermediary file
     read_mlst="${species_dict_read_mlst[$organism]}"
-    if ! krocus -o "mlst_reads/${sample}_krocusmlst.tsv" "/home/ronan/isolate_sequencing/mlst_krocus/${read_mlst}/" "trimmed/${sample}.fastq.gz" 2>>"$LOGFILE"; then
-        log "❌ Krocus failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="krocus"; continue
+    if ! krocus -o "${sample_dir}/mlst_reads/krocusmlst.tsv" "${KROCUS_DB}/${read_mlst}/" "${sample_dir}/mlst_reads/${sample}_krocus.fastq" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
-    step_end=$(date +%s); log "✅ Step krocus done in $((step_end-step_start))s"
+    rm -f "${sample_dir}/mlst_reads/${sample}_krocus.fastq" # Remove other intermediary file
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 5: Assembly ----------
-    mkdir -p assemblies
-    step_start=$(date +%s)
-    outdir="assemblies/${sample}"; mkdir -p "$outdir"
+    # ---------------- STEP 5: Assembly ----------------
+    step="assembly"; step_start=$(date +%s)
+    log "▶ Step $step"
+    outdir="${sample_dir}/assemblies"; mkdir -p "$outdir"
     size="${species_dict_size[$organism]}"
-    if ! autoautocycler.sh -o "$outdir/" -t "$THREADS" -s "$size" -a "flye raven" "trimmed/${sample}.fastq.gz" 2>>"$LOGFILE"; then
-        log "❌ Assembly failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="assembly"; continue
+    if ! autoautocycler.sh -o "$outdir/" -t "$THREADS" -s "$size" -a "flye raven" "${sample_dir}/trimmed/${sample}.fastq.gz" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
-    cp "$outdir/${sample}.fasta" "assemblies/${sample}.fasta" 2>/dev/null || true
-    cp "$outdir/${sample}.gfa" "assemblies/${sample}.gfa" 2>/dev/null || true
-    step_end=$(date +%s); log "✅ Step assembly done in $((step_end-step_start))s"
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 6: Mapping ----------
-    step_start=$(date +%s)
-    asm="assemblies/${sample}.fasta"; bam="assemblies/${sample}.bam"
-    if ! minimap2 -x map-ont --secondary no -a -t "$THREADS" "$asm" "trimmed/${sample}.fastq.gz" 2>>"$LOGFILE" \
-        | samtools sort -O BAM -o "$bam" 2>>"$LOGFILE"; then
-        log "❌ Mapping failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="mapping"; continue
+    # ---------------- STEP 6: Coverage depth  ----------------
+    step="mapping_depth"; step_start=$(date +%s)
+    log "▶ Step $step"
+    asm="${sample_dir}/assemblies/${sample}.fasta"; depth="${sample_dir}/qc/genome_coverage_depth.txt"
+    if ! minimap2 -x map-ont --secondary no -a -t "$THREADS" "$asm" "${sample_dir}/trimmed/${sample}.fastq.gz" | samtools sort -O BAM | samtools coverage - | cut -f 7 | head -n 2 > "$depth" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
-    samtools index -M "$bam" 2>>"$LOGFILE"
-    mkdir -p "qc/${sample}"
-    qualimap bamqc -bam "$bam" -outdir "qc/${sample}" --java-mem-size=16G 2>>"$LOGFILE"
-    step_end=$(date +%s); log "✅ Step mapping done in $((step_end-step_start))s"
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 7: QUAST ----------
-    step_start=$(date +%s)
-    quast -o "qc/${sample}_quast" -t "$THREADS" -m 100 -l "$sample" "$asm" >>"$LOGFILE" 2>&1
-    step_end=$(date +%s); log "✅ Step quast done in $((step_end-step_start))s"
+    # ---------------- STEP 7: QUAST ----------------
+    step="quast"; step_start=$(date +%s)
+    log "▶ Step $step"
+    if ! quast -o "${sample_dir}/qc/quast" -t "$THREADS" -m 100 -l "$sample" "$asm" >>"$LOGFILE" 2>&1; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 8: Bandage ----------
-    step_start=$(date +%s)
-    gfa="assemblies/${sample}.gfa"
-    [[ -f "$gfa" ]] && Bandage image "$gfa" "qc/${sample}.svg" 2>>"$LOGFILE"
-    step_end=$(date +%s); log "✅ Step bandage done in $((step_end-step_start))s"
+    # ---------------- STEP 8: Bandage ----------------
+    step="bandage"; step_start=$(date +%s)
+    log "▶ Step $step"
+    gfa="${sample_dir}/assemblies/${sample}.gfa"
+    if ! [[ -f "$gfa" ]] && Bandage image "$gfa" "${sample_dir}/qc/assembly_image.svg" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 9: MLST contigs ----------
-    step_start=$(date +%s)
+    # ---------------- STEP 9: MLST contigs ----------------
+    step="mlst_contigs"; step_start=$(date +%s)
+    log "▶ Step $step"
     scheme="${species_dict_mlst_contigs[$organism]}"
-    conda run -n "$ENV_MLST" mlst --scheme "$scheme" "$asm" > "${sample}_contigmlst.tsv" 2>>"$LOGFILE"
-    step_end=$(date +%s); log "✅ Step mlst_contigs done in $((step_end-step_start))s"
-
-    # ---------- Step 10: Prokka ----------
-    step_start=$(date +%s)
-    prokka_species="${species_dict_prokka[$organism]}"
-    if ! conda run -n "$ENV_PROKKA" prokka --outdir "assemblies/${sample}/" --force \
-        --species "$prokka_species" --prefix "$sample" --strain "$sample" \
-        --kingdom Bacteria --cpus "$THREADS" --gcode 11 "$asm" 2>>"$LOGFILE"; then
-        log "❌ Prokka failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="prokka"; continue
+    if ! conda run -n "$ENV_MLST" mlst --scheme "$scheme" "$asm" > "${sample_dir}/contig_mlst.tsv" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
-    step_end=$(date +%s); log "✅ Step prokka done in $((step_end-step_start))s"
+    sequence_type=$(awk '{print $3; exit}' "${sample_dir}/contig_mlst.tsv")
+    log "Multi-locus Sequence Type found for $top_hit: ST${sequence_type}" 
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 11: AMRFinder ----------
-    step_start=$(date +%s)
-    amr_species="${species_dict_prokka[$organism]}"
-    conda run -n "$ENV_AMRFINDER" amrfinder -n "$asm" -O "$amr_species" \
-        --threads "$THREADS" -o "${sample}_resistance.tsv" \
-        -g "assemblies/${sample}/${sample}.gff" -p "assemblies/${sample}/${sample}.faa" -a prokka 2>>"$LOGFILE"
-    step_end=$(date +%s); log "✅ Step amrfinder done in $((step_end-step_start))s"
+    # ---------------- STEP 10: abritamr (AMRFINDER) ----------------
+    step="amrfinder"; step_start=$(date +%s)
+    log "▶ Step $step"
+    amr_species="${species_dict_amrfinder[$organism]}"
+    if ! conda run -n "$ENV_ABRITAMR" abritamr run -c "${sample_dir}/assemblies/${sample}.fasta" -px "$sample_dir" -j "$THREADS" -sp "$amr_species" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 12: BUSCO ----------
-    step_start=$(date +%s)
-    mkdir -p qc/busco_results
+    # ---------------- STEP 11: BUSCO ----------------
+    step="busco"; step_start=$(date +%s)
+    log "▶ Step $step"
+    mkdir -p "${sample_dir}/qc/busco_results"
     lineage="${species_dict_busco[$organism]}"
-    if ! busco -i "$asm" -f -m genome -l "$lineage" -c "$THREADS" \
-        --out_path "qc/busco_results" -o "$sample" 2>>"$LOGFILE"; then
-        log "❌ BUSCO failed"; sample_status["$sample"]="FAILED"; sample_step["$sample"]="busco"; continue
+    if ! busco -i "$asm" -f -m genome -l "$lineage" -c "$THREADS" --out_path "${sample_dir}/qc/busco_results" -o "$sample" 2>>"$LOGFILE"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
-    rm -rf busco_downloads/ 2>>"$LOGFILE"
-    step_end=$(date +%s); log "✅ Step busco done in $((step_end-step_start))s"
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Step 14: Copy genomes ----------
-    step_start=$(date +%s)
+    # ---------------- STEP 12: MultiQC ----------------
+    step="multiqc"; step_start=$(date +%s)
+    log "▶ Step $step"
+    if ! multiqc -i "$sample" -f -v -o ${sample_dir}/multiqc_report/ --no-ai -c "$MULTIQC_CONFIG" "$sample_dir"/ >>"$LOGFILE" 2>&1; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
+
+    # ---------------- STEP 13: Copy genomes for ST specifc tree ----------------
+    step="copy_genomes"; step_start=$(date +%s)
+    log "▶ Step $step"
     species="${species_dict_read_mlst[$organism]}"
-    tree_dir="${TREE_BASE}/${species}_tree"
-    mkdir -p "$tree_dir"
-    cp "$asm" "$tree_dir/${sample}.fasta" 2>>"$LOGFILE" || log "⚠️ copy fasta failed"
-    cp "trimmed/${sample}.fastq.gz" "$tree_dir/${sample}.fastq.gz" 2>>"$LOGFILE" || log "⚠️ copy fastq failed"
-    step_end=$(date +%s); log "✅ Step copy done in $((step_end-step_start))s"
+    species_tree_dir="${TREE_BASE}/${species}_trees"
+    mlst_tree_dir="$species_tree_dir/ST${sequence_type}"
+    mkdir -p "$species_tree_dir"
+    mkdir -p "$mlst_tree_dir"
+    cp "$asm" "$mlst_tree_dir/${sample}.fasta" 2>>"$LOGFILE" || log "⚠️ copy fasta failed"
+    cp "${sample_dir}/trimmed/${sample}.fastq.gz" "$mlst_tree_dir/${sample}.fastq.gz" 2>>"$LOGFILE" || log "⚠️ copy fastq failed"
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------- Sample complete ----------
+    # ---------------- Sample completion ----------------
     end_total=$(date +%s)
-    sample_time_start["$sample"]=$start_total
-    sample_time_end["$sample"]=$end_total
-    log "✅ Sample $sample completed in $((end_total-start_total))s"
+    total_time=$((end_total-start_total))
+    echo -e "${sample}\t${status}\t${failed_step}\t${total_time}" >> "${MASTER_SUMMARY}"
+    log "✅ Sample $sample completed in ${total_time}s"
+
 done
 
-# ==============================================================
-# Step 13: MultiQC (run once at end)
-# ==============================================================
-log "STEP 13: MultiQC report"
-mkdir -p multiqc_report
-currentPWD=$(basename "$output_directory")
-multiqc -i "$currentPWD" -f -v -o multiqc_report/ --no-ai -c "$MULTIQC_CONFIG" . >>"$LOGFILE" 2>&1
-
-# ==============================================================
-# FINAL SUMMARY
-# ==============================================================
-log "-------------------------------------------------------------"
-log "Pipeline summary:"
-echo -e "Sample\tStatus\tFailed_Step\tTotal_Time(s)" > "$SUMMARY_FILE"
-for sample in "${SAMPLES[@]}"; do
-    status="${sample_status[$sample]:-OK}"
-    step="${sample_step[$sample]:--}"
-    if [[ "$status" == "OK" ]]; then
-        total=$(( sample_time_end[$sample]-sample_time_start[$sample] ))
-        log "✅ $sample — OK — ${total}s"
-        echo -e "${sample}\t${status}\t${step}\t${total}" >> "$SUMMARY_FILE"
-    else
-        log "❌ $sample — failed at step ${step}"
-        echo -e "${sample}\tFAILED\t${step}\t-" >> "$SUMMARY_FILE"
-    fi
-done
-log "Summary written to $SUMMARY_FILE"
-log "Pipeline finished at $(date '+%F %T')"
+log "Pipeline complete. Master summary saved in $MASTER_SUMMARY"
