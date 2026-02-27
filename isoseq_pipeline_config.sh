@@ -15,6 +15,8 @@ CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v43
 ENV_MLST="mlst_contigs"
 ENV_ABRITAMR="abritamr"
 ENV_ABRICATE="abricate"
+ENV_GUBBINS="gubbins"
+ENV_CLAIR3="clair3"
 
 # ----------------------- DICTIONARIES --------------------------
 declare -A species_dict_read_mlst=(
