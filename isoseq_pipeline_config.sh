@@ -5,7 +5,7 @@
 IFS=$'\n\t'
 
 # -------------------------- CONFIG ----------------------------
-KRAKEN2_DB="kraken_reference/kraken2_pluspf_db/"
+KRAKEN2_DB="kraken_reference/"
 PY_KRAKEN_SUMMARY="scripts/kraken2_top5_species.py"
 TREE_BASE="trees/"
 KROCUS_DB="mlst_krocus/"
