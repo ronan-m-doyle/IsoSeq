@@ -80,7 +80,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 28800 )) && [[ ! -f "$STAGE1_FLAG" ]]; then
         echo "▶ Running 8h analysis"
-        ./isoseq_pipeline_8h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        bash isoseq_pipeline_8h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE1_FLAG"
     fi
 
@@ -89,7 +89,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 86400 )) && [[ ! -f "$STAGE2_FLAG" ]]; then
         echo "▶ Running 24h analysis"
-        ./isoseq_pipeline_24h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        bash isoseq_pipeline_24h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE2_FLAG"
     fi
 
@@ -98,7 +98,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 172800 )) && [[ ! -f "$STAGE3_FLAG" ]]; then
         echo "▶ Running 48h analysis"
-        ./isoseq_pipeline_48h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        bash isoseq_pipeline_48h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE3_FLAG"
     fi
 
@@ -107,7 +107,7 @@ while true; do
     # ---------------------------------
     if (( last_start >= 258000 )) && [[ ! -f "$STAGE4_FLAG" ]]; then
         echo "▶ Running 72h analysis"
-        ./isoseq_pipeline_72h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        bash isoseq_pipeline_72h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE4_FLAG"
         echo "All stages complete. Exiting monitor."
         break
