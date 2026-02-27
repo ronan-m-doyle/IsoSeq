@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline Config
+# Isolate Sequencing Pipeline Config - Version 0.6
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
 # -------------------------- CONFIG ----------------------------
-KRAKEN2_DB="${HOME}/reference_genomes/kraken2_pluspf_db/"
-PY_KRAKEN_SUMMARY="${HOME}/useful_scripts/kraken2_top5_species.py"
-TREE_BASE="${HOME}/isolate_sequencing/trees/"
-KROCUS_DB="${HOME}/isolate_sequencing/mlst_krocus/"
+KRAKEN2_DB="kraken_reference/kraken2_pluspf_db/"
+PY_KRAKEN_SUMMARY="scripts/kraken2_top5_species.py"
+TREE_BASE="trees/"
+KROCUS_DB="mlst_krocus/"
 CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v430_bacteria_finetuned/"
 
 # -------------------------- ENVS -------------------------------
