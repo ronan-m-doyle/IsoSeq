@@ -52,6 +52,7 @@ STAGE1_FLAG="pipeline_logs/.8h_complete_${RUN_NAME}"
 STAGE2_FLAG="pipeline_logs/.24h_complete_${RUN_NAME}"
 STAGE3_FLAG="pipeline_logs/.48h_complete_${RUN_NAME}"
 STAGE4_FLAG="pipeline_logs/.72h_complete_${RUN_NAME}"
+TREE_FLAG="pipeline_logs/.tree_complete_${RUN_NAME}"
 
 while true; do
 
@@ -109,6 +110,17 @@ while true; do
         echo "▶ Running 72h analysis"
         bash isoseq_pipeline_72h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         touch "$STAGE4_FLAG"
+        echo "All stages complete. Exiting monitor."
+        break
+    fi
+    
+    # ---------------------------------
+    # Tree building Stage
+    # ---------------------------------
+    if (( last_start >= 258000 )) && [[ ! -f "$TREE_FLAG" ]]; then
+        echo "▶ Running phylogenetic analysis"
+        bash isoseq_pipeline_tree.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        touch "$TREE_FLAG"
         echo "All stages complete. Exiting monitor."
         break
     fi
