@@ -9,7 +9,7 @@ KRAKEN2_DB="kraken_reference/"
 PY_KRAKEN_SUMMARY="scripts/kraken2_top5_species.py"
 TREE_BASE="trees/"
 KROCUS_DB="mlst_krocus/"
-CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v430_bacteria_finetuned/"
+CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v500/"
 
 # -------------------------- ENVS -------------------------------
 ENV_MLST="mlst_contigs"
