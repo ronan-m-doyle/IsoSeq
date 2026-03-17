@@ -1,4 +1,4 @@
-# synnovis_isolate_sequencing_pipeline
+# IsoSeq
 Bacterial isolate sequencing bioinformatics pipeline.
 
 ## Install
