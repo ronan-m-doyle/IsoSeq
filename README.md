@@ -4,7 +4,7 @@ Bacterial isolate sequencing bioinformatics pipeline.
 ## Install
 
 ```
-git clone https://github.com/ronan-m-doyle/isoseq.git
+git clone https://github.com/ronan-m-doyle/IsoSeq.git
 cd IsoSeq/
 
 mamba env create -f isoseq_pipeline_env.yml -n isoseq_pipeline
