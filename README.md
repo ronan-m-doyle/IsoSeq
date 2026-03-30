@@ -5,7 +5,7 @@ Bacterial isolate sequencing bioinformatics pipeline.
 
 ```
 git clone https://github.com/ronan-m-doyle/isoseq.git
-cd synnovis_isolate_sequencing_pipeline
+cd IsoSeq/
 
 mamba env create -f isoseq_pipeline_env.yml -n isoseq_pipeline
 mamba create -n abricate -c conda-forge -c bioconda abricate
