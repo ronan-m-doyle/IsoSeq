@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-<<<<<<< HEAD
-# Isolate Sequencing Pipeline - Phylogenetic analysis stage - (Trees)
-=======
 # Isolate Sequencing Pipeline v0.7 - Phylogenetic analysis stage - (Trees)
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -40,11 +36,7 @@ for idx in "${!SAMPLES[@]}"; do
     organism="${ORGANISMS[$idx]}"
     collection="${COLLECTIONS[$idx]}"
 
-<<<<<<< HEAD
-    sample_dir="results/${sample}/72h"
-=======
     sample_dir="/data/IsoSeq_results/${sample}/72h"
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     mkdir -p "${sample_dir}/logs"
     LOGFILE="${sample_dir}/logs/pipeline.log"
 
@@ -67,16 +59,6 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     species="${species_dict_read_mlst[$organism]}"
     species_tree_dir="${TREE_BASE}/${species}_trees"
-<<<<<<< HEAD
-    # Adds a step in MLST result exists
-    if [[ -f "${sample_dir}/mlst_result.tsv" ]]; then
-        log "✅ MLST result exists."
-        else
-        log "⚠️ MLST result does not exist, ST set to \"none\"."
-        sequence_type=`echo "_NONE"`
-    fi
-    sequence_type=$(awk '{print $3; exit}' "${sample_dir}/mlst_result.tsv")
-=======
 
     # Add a step that if contig MLST result is ND, then use krocus mlst result instead
     if [[ -f "${sample_dir}/mlst_result.tsv" ]]; then
@@ -97,7 +79,6 @@ for idx in "${!SAMPLES[@]}"; do
         continue
     fi
 
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     mlst_tree_dir="${species_tree_dir}/ST${sequence_type}"
     mkdir -p "$species_tree_dir"
     mkdir -p "$mlst_tree_dir"
@@ -118,31 +99,13 @@ for idx in "${!SAMPLES[@]}"; do
     
     # ---------------- STEP 2: Picking Reference for ST specifc tree ----------------
     step="tree_reference_pick"; step_start=$(date +%s)
-<<<<<<< HEAD
-    REF_SAMPLE=""
-
-    # Sort by collection date (oldest first)
-=======
     REF_CIRCULAR=false
 
     # Sort by collection date (oldest first), prefer circular=true
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     while IFS=, read -r sample_name collection_date; do
         [[ "$sample_name" == "sample" ]] && continue
 
         fasta="${mlst_tree_dir}/${sample_name}.fasta"
-<<<<<<< HEAD
-
-        if [[ -f "$fasta" ]] && \
-            grep ">1" "$fasta" | grep -q "circular=true"; then
-            REF_SAMPLE="$sample_name"
-            break
-        fi
-    done < <(tail -n +2 "$collection_file" | sort -t, -k2,2n)
-
-    if [[ -z "$REF_SAMPLE" ]]; then
-        log "❌ No circular complete genomes available for reference"
-=======
         [[ ! -f "$fasta" ]] && continue
 
         if head -n 1 "$fasta" | grep -q "circular=true"; then
@@ -159,21 +122,12 @@ for idx in "${!SAMPLES[@]}"; do
     # Fail only if no samples found at all
     if [[ -z "$REF_SAMPLE" ]]; then
         log "❌ No samples available to use as reference"
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
         status="FAILED"
         failed_step="$step"
         echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
         continue
     fi
 
-<<<<<<< HEAD
-    log "$REF_SAMPLE chosen as circular reference sample for mapping as root of tree."
-    
-    grep -a1 ">1" "${mlst_tree_dir}/${REF_SAMPLE}.fasta" > "${mlst_tree_dir}/ref_full_genome.fasta"
-    REF_FASTA="${mlst_tree_dir}/ref_full_genome.fasta"
-    samtools faidx $REF_FASTA
-    
-=======
     grep -A1 "^>1 " "${mlst_tree_dir}/${REF_SAMPLE}.fasta" > "${mlst_tree_dir}/ref_full_genome.fasta"
     REF_FASTA="${mlst_tree_dir}/ref_full_genome.fasta"
 
@@ -187,7 +141,6 @@ for idx in "${!SAMPLES[@]}"; do
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
 
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 3: Mapping against tree reference ----------------
@@ -224,12 +177,8 @@ for idx in "${!SAMPLES[@]}"; do
     # Filter variants to split MNVs to SNVs and keep only varints that pass filter
     bcftools norm -a -m - "${mlst_tree_dir}/${sample}_full.vcf.gz" |
     bcftools norm -a -d "none" |
-<<<<<<< HEAD
-    bcftools view -v "snps" -f "PASS" -O "z" > "${mlst_tree_dir}/${sample}_filtered.vcf.gz"
-=======
     bcftools view -v "snps" -f "PASS" -O "z" |
     bcftools filter -i "QUAL>=50" -O "z" > "${mlst_tree_dir}/${sample}_filtered.vcf.gz"
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     bcftools index -f "${mlst_tree_dir}/${sample}_filtered.vcf.gz"
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
@@ -237,11 +186,7 @@ for idx in "${!SAMPLES[@]}"; do
     step="consensus"; step_start=$(date +%s)
     log "Generating consensus sequence for $sample";
     bedtools genomecov -ibam "${mlst_tree_dir}/${bam}" -bga | awk '$4 < 10' > "${mlst_tree_dir}/${sample}.bed" # Generate coverage less than 10 bed file
-<<<<<<< HEAD
-    if ! bcftools consensus -f "$REF_FASTA" -m "${mlst_tree_dir}/${sample}.bed" "${mlst_tree_dir}/${sample}_filtered.vcf.gz" > "${mlst_tree_dir}/${sample}_consensus.fasta"; then
-=======
     if ! bcftools consensus -H A -f "$REF_FASTA" -m "${mlst_tree_dir}/${sample}.bed" "${mlst_tree_dir}/${sample}_filtered.vcf.gz" > "${mlst_tree_dir}/${sample}_consensus.fasta"; then
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi # Generate consensus, masking low cov regions
     sed -i "s/>.*$/>${sample}/" "${mlst_tree_dir}/${sample}_consensus.fasta" # Change name of sequences in consensus fasta file to sample name
@@ -259,14 +204,6 @@ for idx in "${!SAMPLES[@]}"; do
             -o "$REF_SAMPLE" \
             --first-model "JC" \
             --model "GTRGAMMA" \
-<<<<<<< HEAD
-            -v \
-            -f "90" \
-            ${mlst_tree_dir}/alignment.fasta; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
-    fi
-    snp-dists -j 20 "${mlst_tree_dir}/gubbins.filtered_polymorphic_sites.fasta" > snp_distances.tsv
-=======
             --model-fitter "raxmlng" \
             --recon-model "GTR" \
             -v \
@@ -280,7 +217,6 @@ for idx in "${!SAMPLES[@]}"; do
     coresnpfilter -c "1.0" "${mlst_tree_dir}/ST${sequence_type}.filtered_polymorphic_sites.fasta" > "${mlst_tree_dir}/ST${sequence_type}.filtered_polymorphic_sites_core.fasta"
     snp-dists -j 1 "${mlst_tree_dir}/ST${sequence_type}.filtered_polymorphic_sites_core.fasta" > ${mlst_tree_dir}/ST${sequence_type}.snp_distances.tsv
     grep "$sample" ${mlst_tree_dir}/ST${sequence_type}.snp_distances.tsv > ${sample_dir}/snp_distances.tsv
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 7: Generate tree image ----------------

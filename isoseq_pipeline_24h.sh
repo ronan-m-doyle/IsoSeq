@@ -96,11 +96,7 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     outdir="${sample_dir}/assemblies"; mkdir -p "$outdir"
     size="${species_dict_size[$organism]}"
-<<<<<<< HEAD
-    if ! bash scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -s "$size" -a "flye raven" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
-=======
     if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -s "$size" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
->>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
