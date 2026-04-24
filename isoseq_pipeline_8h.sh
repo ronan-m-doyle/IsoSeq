@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline - 8h stage - (Initial read-based MLST and AMR)
+# Isolate Sequencing Pipeline v0.7 - 8h stage - (Initial read-based MLST and AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -36,7 +36,7 @@ for idx in "${!SAMPLES[@]}"; do
     organism="${ORGANISMS[$idx]}"
     collection="${COLLECTIONS[$idx]}"
 
-    sample_dir="results/${sample}/8h"
+    sample_dir="/data/IsoSeq_results/${sample}/8h"
     mkdir -p "${sample_dir}/logs"
     LOGFILE="${sample_dir}/logs/pipeline.log"
 
@@ -121,10 +121,21 @@ for idx in "${!SAMPLES[@]}"; do
     log "Multi-locus Sequence Type found for $top_hit: ST${sequence_type}" 
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------------- STEP 5: abricate for AMR gene prediction ----------------
+    # ---------------- STEP 5: abricate for AMR gene and virulence factor prediction ----------------
     step="abricate"; step_start=$(date +%s)
     log "▶ Step $step"
-    if ! conda run -n "$ENV_ABRICATE" abricate --threads "$THREADS" "${sample_dir}/trimmed/${sample}.fastq.gz" > "$sample_dir"/amr.tsv; then
+    if ! conda run -n "$ENV_ABRICATE" abricate --minid "90" \
+            --threads "$THREADS" \
+            --datadir "$ABRICATE_DB" \
+            --db "ncbi" \
+            "${sample_dir}/trimmed/${sample}.fastq.gz" > "${sample_dir}/amr.tsv";then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    if ! conda run -n "$ENV_ABRICATE" abricate --minid "90" \
+            --threads "$THREADS" \
+            --datadir "$ABRICATE_DB" \
+            --db "ncbi_virulence" \
+            "${sample_dir}/trimmed/${sample}.fastq.gz" > "${sample_dir}/virulence.tsv";then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"

@@ -3,6 +3,7 @@
 # Simple pipeline for running Autocycler on multiple samples (https://github.com/rrwick/Autocycler.git)
 # Copyright (C) 2025 Thomas D. Stanton (tomdstanton@gmail.com)
 # Permission to copy and modify is granted under the GPLv3 license
+<<<<<<< HEAD
 # Last revised 15/01/2025
 # Edited by Ronan Doyle on 10/02/2025
 
@@ -12,6 +13,15 @@ set -eo pipefail
 for b in autocycler scripts/flye.sh scripts/raven.sh; do
     command -v $b >/dev/null 2>&1 || { echo 2>&1 "ERROR: $b not found, was Autocycler installed correctly?"; exit 1; }
 done
+=======
+# Last revised 20/06/2025
+# Edited by Ronan Doyle April 2026
+
+set -eo pipefail
+
+# First check binary
+command -v autocycler >/dev/null 2>&1 || { echo 2>&1 "ERROR: autocycler not found, was Autocycler installed correctly?"; exit 1; }
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
 
 # Define initial globals and argument defaults
 PROG_NAME=$(basename $0 ".sh")
@@ -20,7 +30,11 @@ THREADS=$(getconf _NPROCESSORS_ONLN)
 COUNT=4
 KMER=51
 SIZE='AUTO'
+<<<<<<< HEAD
 POSSIBLE_ASSEMBLERS=("flye" "raven")
+=======
+POSSIBLE_ASSEMBLERS=("canu" "flye" "lja" "metamdbg" "miniasm" "necat" "nextdenovo" "raven" "redbean" "myloasm" "plassembler")
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
 
 # Define args
 function usage {
@@ -149,16 +163,26 @@ for reads in "${READ_FILES[@]}"; do
     echo
 
     # Define output directories
+<<<<<<< HEAD
     sample_out=${OUT}
+=======
+    sample_out=${OUT}/${sample}
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     assemblies=${sample_out}/assemblies
     subsampled_reads=${sample_out}/subsampled_reads
     autocycler_out=${sample_out}/autocycler_out
 
     # Get genome size
     if [ $SIZE == 'AUTO' ]; then
+<<<<<<< HEAD
         echo "Getting genome size with genome_size_raven.sh"
         echo
         genome_size=$(genome_size_raven.sh $reads $THREADS)
+=======
+        echo "Getting genome size with autocycler helper genome_size"
+        echo
+        genome_size=$(autocycler helper genome_size --reads $reads --threads $THREADS)
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     else
         genome_size=$SIZE
     fi
@@ -173,14 +197,23 @@ for reads in "${READ_FILES[@]}"; do
             echo
             echo "Assembling set $i with $assembler  -----------"
             echo
+<<<<<<< HEAD
             scripts/${assembler}.sh ${subsampled_reads}/sample_0${i}.fastq ${assemblies}/${assembler}_0${i} $THREADS $genome_size
+=======
+            autocycler helper ${assembler} --reads ${subsampled_reads}/sample_0${i}.fastq --out_prefix ${assemblies}/${assembler}_0${i} --threads $THREADS --genome_size $genome_size
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
         done
     done
     rm -rf $subsampled_reads  # Remove reads directory to save disk space
 
     # Cluster and compress unitig graph
+<<<<<<< HEAD
     autocycler compress -i $assemblies -a $autocycler_out -t $THREADS --kmer $KMER
     autocycler cluster -a $autocycler_out
+=======
+    autocycler compress -i $assemblies -a $autocycler_out -t $THREADS --kmer $KMER --max_contigs 75
+    autocycler cluster -a $autocycler_out --max_contigs 75 --min_assemblies 1
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     for c in ${autocycler_out}/clustering/qc_pass/cluster_*; do
         autocycler trim -c "$c"
         autocycler resolve -c "$c"
@@ -189,7 +222,10 @@ for reads in "${READ_FILES[@]}"; do
     # Finish up
     autocycler combine -a $autocycler_out -i ${autocycler_out}/clustering/qc_pass/cluster_*/5_final.gfa
     cp ${autocycler_out}/consensus_assembly.fasta ${OUT}/${sample}.fasta  # Copy final fasta to $OUT with sample name
+<<<<<<< HEAD
     cp ${autocycler_out}/consensus_assembly.gfa ${OUT}/${sample}.gfa  # Copy final assembly graph to $OUT with sample name
+=======
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
     autocycler table -a $autocycler_out -n $sample >> $TABLE  # append a TSV row
     echo
     echo "Finished assembling $sample"

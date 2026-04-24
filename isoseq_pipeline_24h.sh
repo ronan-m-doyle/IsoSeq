@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline - 24h stage - (Assembly, QC, MLST, AMR)
+# Isolate Sequencing Pipeline v0.7 - 24h stage - (Assembly, QC, MLST, AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -36,7 +36,7 @@ for idx in "${!SAMPLES[@]}"; do
     organism="${ORGANISMS[$idx]}"
     collection="${COLLECTIONS[$idx]}"
 
-    sample_dir="results/${sample}/24h"
+    sample_dir="/data/IsoSeq_results/${sample}/24h"
     mkdir -p "${sample_dir}/logs"
     LOGFILE="${sample_dir}/logs/pipeline.log"
 
@@ -48,9 +48,8 @@ for idx in "${!SAMPLES[@]}"; do
     exec 3>&1 4>&2
     exec > >(tee -a "$LOGFILE") 2>&1
 
-
-    if [[ -f "${sample}/8h/kraken2_top5_taxa.csv" ]]; then
-        top_hit=$(awk -F, 'NR>1 && $1 {print $2; exit}' "${sample}/8h/kraken2_top5_taxa.csv")
+    if [[ -f "/data/IsoSeq_results/${sample}/8h/kraken2_top5_taxa.csv" ]]; then
+        top_hit=$(awk -F, 'NR>1 && $1 {print $2; exit}' "/data/IsoSeq_results/${sample}/8h/kraken2_top5_taxa.csv")
         if [[ "$top_hit" != "$organism" ]]; then
             log "8h analysis failed for $sample - sample skipped"; continue
             fi
@@ -97,7 +96,11 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     outdir="${sample_dir}/assemblies"; mkdir -p "$outdir"
     size="${species_dict_size[$organism]}"
+<<<<<<< HEAD
     if ! bash scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -s "$size" -a "flye raven" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+=======
+    if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -s "$size" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+>>>>>>> 9312397 (Updates for version 0.7 of the pipeline)
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
@@ -122,7 +125,7 @@ for idx in "${!SAMPLES[@]}"; do
     # ---------------- STEP 6: Bandage ----------------
     step="bandage"; step_start=$(date +%s)
     log "▶ Step $step"
-    gfa="${sample_dir}/assemblies/${sample}.gfa"
+    gfa="${sample_dir}/assemblies/${sample}/autocycler_out/consensus_assembly.gfa"
     if ! Bandage image "$gfa" "${sample_dir}/qc/assembly_image.svg"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
