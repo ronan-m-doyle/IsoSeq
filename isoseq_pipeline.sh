@@ -121,28 +121,16 @@ while true; do
         	bash isoseq_pipeline_72h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
         	touch "$STAGE4_FLAG"
     	fi
-    
+
+        # ---------------------------------
     	# Tree building Stage - Will always re-run if pipeline is started
     	# ---------------------------------
-    #    echo "▶ Running phylogenetic analysis"
-    #    bash isoseq_pipeline_tree.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
-
-        echo "All stages complete. Exiting monitor."
-        break
-    fi
-    
-    # ---------------------------------
-    # Tree building Stage
-    # ---------------------------------
-    if (( last_start >= 258000 )) && [[ ! -f "$TREE_FLAG" ]]; then
         echo "▶ Running phylogenetic analysis"
         bash isoseq_pipeline_tree.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
-        touch "$TREE_FLAG"
+
         echo "All stages complete. Exiting monitor."
         break
     fi
-
-
 
     # ---------------------------------
     # Sleep 30 minutes
