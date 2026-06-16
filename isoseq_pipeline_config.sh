@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline Config v0.7
+# Isolate Sequencing Pipeline Config v0.8
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -11,6 +11,8 @@ TREE_BASE="/data/IsoSeq_results/trees/"
 KROCUS_DB="/data/IsoSeq/databases/mlst_krocus/"
 CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v500/"
 ABRICATE_DB="/data/IsoSeq/databases/abricate_db/"
+MLST_BLAST_DB="/data/IsoSeq/databases/mlst/blast/mlst.fa"
+MLST_DB="/data/IsoSeq/databases/mlst/pubmlst/"
 
 # -------------------------- ENVS -------------------------------
 ENV_MLST="mlst_contigs"
@@ -32,10 +34,11 @@ declare -A species_dict_read_mlst=(
     ["Pseudomonas aeruginosa"]="Pseudomonas_aeruginosa"
     ["Klebsiella oxytoca"]="Klebsiella_oxytoca"
     ["Legionella pneumophila"]="Legionella_pneumophila"
+    ["Candidozyma auris"]="Candidozyma_auris"
 )
 
 declare -A species_dict_mlst_contigs=(
-    ["Acinetobacter baumannii"]="abaumannii_2"
+    ["Acinetobacter baumannii"]="abaumannii"
     ["Escherichia coli"]="ecoli"
     ["Klebsiella pneumoniae"]="klebsiella"
     ["Staphylococcus aureus"]="saureus"
@@ -46,6 +49,7 @@ declare -A species_dict_mlst_contigs=(
     ["Pseudomonas aeruginosa"]="paeruginosa"
     ["Klebsiella oxytoca"]="koxytoca"
     ["Legionella pneumophila"]="lpneumophila"
+    ["Candidozyma auris"]="calbicans"
 )
 
 declare -A species_dict_amrfinder=(
@@ -59,6 +63,7 @@ declare -A species_dict_amrfinder=(
     ["Enterobacter hormaechei"]="Enterobacter_cloacae"
     ["Pseudomonas aeruginosa"]="Pseudomonas_aeruginosa"
     ["Klebsiella oxytoca"]="Klebsiella_oxytoca"
+    ["Candidozyma auris"]=""
 )
 
 declare -A species_dict_busco=(
@@ -73,6 +78,7 @@ declare -A species_dict_busco=(
     ["Pseudomonas aeruginosa"]="pseudomonas_odb12"
     ["Klebsiella oxytoca"]="enterobacteriaceae_odb12"
     ["Legionella pneumophila"]="legionellaceae_odb12"
+    ["Candidozyma auris"]="debaryomycetaceae_odb12"
 )
 
 declare -A species_dict_size=(
@@ -87,4 +93,5 @@ declare -A species_dict_size=(
     ["Pseudomonas aeruginosa"]="6.3m"
     ["Klebsiella oxytoca"]="5.9m"
     ["Legionella pneumophila"]="3.4m"
+    ["Candidozyma auris"]="12.4m"
 )
