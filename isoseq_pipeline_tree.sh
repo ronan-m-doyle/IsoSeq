@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.7 - Phylogenetic analysis stage - (Trees)
+# Isolate Sequencing Pipeline v0.8 - Phylogenetic analysis stage - (Trees)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -36,7 +36,21 @@ for idx in "${!SAMPLES[@]}"; do
     organism="${ORGANISMS[$idx]}"
     collection="${COLLECTIONS[$idx]}"
 
-    sample_dir="/data/IsoSeq_results/${sample}/72h"
+    # Set sample_dir to the latest available timepoint
+    sample_dir=""
+    for timepoint in 72h 48h 24h; do
+        candidate="/data/IsoSeq_results/${sample}/${timepoint}"
+        if [[ -d "$candidate" ]]; then
+            sample_dir="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$sample_dir" ]]; then
+        log "❌ No timepoint directory found for $sample (checked 72h, 48h, 24h) - skipping"
+        continue
+    fi
+
     mkdir -p "${sample_dir}/logs"
     LOGFILE="${sample_dir}/logs/pipeline.log"
 
@@ -45,9 +59,9 @@ for idx in "${!SAMPLES[@]}"; do
     exec > >(tee -a "$LOGFILE") 2>&1
 
     if [[ -f "${sample_dir}/mlst_result.tsv" ]]; then
-        log "72h analysis complete for $sample - proceed"
+        log "Assembly complete for $sample - proceed"
         else 
-        log "72h analysis failed for $sample - sample skipped"; continue
+        log "Assembly failed for $sample - sample skipped"; continue
     fi
 
     log "========== Processing sample: $sample ($organism) =========="
@@ -62,10 +76,10 @@ for idx in "${!SAMPLES[@]}"; do
 
     # Add a step that if contig MLST result is ND, then use krocus mlst result instead
     if [[ -f "${sample_dir}/mlst_result.tsv" ]]; then
-        contig_result=$(awk '{print $3; exit}' "${sample_dir}/mlst_result.tsv")
+        contig_result=$(awk 'NR==2{print $3; exit}' "${sample_dir}/mlst_result.tsv")
         if ! [[ "$contig_result" =~ ^[0-9]+$ ]]; then
             log "❌ Contig MLST result is ST \"ND\" so using krocus mlst result instead"
-            sequence_type=$(awk '{print $1; exit}' "results/${sample}/8h/mlst_result.tsv")
+            sequence_type=$(awk '{print $1; exit}' "/data/IsoSeq_results/${sample}/8h/mlst_result.tsv")
             log "✅ MLST result has succesfully changed from ST${contig_result} to ST${sequence_type}"
             else
                 log "✅ Contig result is ST${contig_result} and present so do not need to use krocus mlst result"
