@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.7 - 24h stage - (Assembly, QC, MLST, AMR)
+# Isolate Sequencing Pipeline v0.8 - 24h stage - (Assembly, QC, MLST, AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -151,7 +151,7 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     mkdir -p ${sample_dir}/mlst_contigs
     scheme="${species_dict_mlst_contigs[$organism]}"
-    if ! conda run -n "$ENV_MLST" mlst --scheme "$scheme" "${sample_dir}/assemblies/${sample}.fasta" > "${sample_dir}/mlst_result.tsv"; then
+    if ! conda run -n "$ENV_MLST" mlst --scheme "$scheme" --full --blastdb "$MLST_BLAST_DB" --datadir "$MLST_DB" "${sample_dir}/assemblies/${sample}.fasta" > "${sample_dir}/mlst_result.tsv"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"

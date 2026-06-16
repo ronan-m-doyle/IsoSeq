@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.7 - 8h stage - (Initial read-based MLST and AMR)
+# Isolate Sequencing Pipeline v0.8 - 8h stage - (Initial read-based MLST and AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
