@@ -10,14 +10,11 @@ PY_KRAKEN_SUMMARY="/data/IsoSeq/scripts/kraken2_top5_species.py"
 TREE_BASE="/data/IsoSeq_results/trees/"
 KROCUS_DB="/data/IsoSeq/databases/mlst_krocus/"
 CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v500/"
-ABRICATE_DB="/data/IsoSeq/databases/abricate_db/"
 MLST_BLAST_DB="/data/IsoSeq/databases/mlst/blast/mlst.fa"
 MLST_DB="/data/IsoSeq/databases/mlst/pubmlst/"
 
 # -------------------------- ENVS -------------------------------
 ENV_MLST="mlst_contigs"
-ENV_ABRITAMR="abritamr"
-ENV_ABRICATE="abricate"
 ENV_GUBBINS="gubbins"
 ENV_CLAIR3="clair3"
 
