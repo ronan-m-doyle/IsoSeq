@@ -137,16 +137,24 @@ for idx in "${!SAMPLES[@]}"; do
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------------- STEP 8: abritamr (AMRFINDER) ----------------
-    step="amrfinder"; step_start=$(date +%s)
+    # ---------------- STEP 8: PROKKA ----------------
+    step="prokka"; step_start=$(date +%s)
     log "▶ Step $step"
-    amr_species="${species_dict_amrfinder[$organism]}"
-    if ! conda run -n "$ENV_ABRITAMR" abritamr run -c "${sample_dir}/assemblies/${sample}.fasta" -px "$sample_dir" -j "$THREADS" -sp "$amr_species"; then
+    if ! prokka --outdir "${sample_dir}/assemblies/" --force --prefix "$sample" --kingdom "Bacteria" --cpus "$THREADS" --gcode 11 "${sample_dir}/assemblies/${sample}.fasta"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------------- STEP 9: MLST contigs ----------------
+    # ---------------- STEP 9: AMRFINDER ----------------
+    step="amrfinder"; step_start=$(date +%s)
+    log "▶ Step $step"
+    amr_species="${species_dict_amrfinder[$organism]}"
+    if ! amrfinder -p "${sample_dir}/assemblies/${sample}.faa" -n "${sample_dir}/assemblies/${sample}.fasta" -g "${sample_dir}/assemblies/${sample}.gff" -a "prokka" --organism "$amr_species" --threads "$THREADS" -o "${sample_dir}/amrfinder.tsv" --plus --report_common; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    fi
+    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
+
+    # ---------------- STEP 10: MLST contigs ----------------
     step="mlst_contigs"; step_start=$(date +%s)
     log "▶ Step $step"
     mkdir -p ${sample_dir}/mlst_contigs
