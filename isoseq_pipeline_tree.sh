@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.8 - Phylogenetic analysis stage - (Trees)
+# Isolate Sequencing Pipeline v0.9 - Phylogenetic analysis stage - (Trees)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -14,27 +14,28 @@ RUN_NAME="$5"
 
 # ---------------------- READ SAMPLESHEET -----------------------
 SAMPLES=(); BARCODES=(); ORGANISMS=(); COLLECTIONDATE=()
-while IFS=, read -r barcode sample organism collection; do
+while IFS=, read -r barcode sample organism collection || [[ -n "$barcode" ]]; do
     [[ "$barcode" == "barcode" || -z "$barcode" ]] && continue
-    if [[ -z "${species_dict_size[$organism]:-}" ]]; then
+    if [[ "$organism" != "Unknown" && -z "${species_dict_size[$organism]:-}" ]]; then
         echo "❌ Unknown organism: $organism"; exit 1
     fi
     SAMPLES+=("$sample")
     BARCODES+=("$barcode")
     ORGANISMS+=("$organism")
-    COLLECTIONS+=("$collection")
+    COLLECTIONDATE+=("$collection")
 done < "$SAMPLESHEET"
 
 # ============================================================== 
 # PER-SAMPLE PIPELINE 
 # ============================================================== 
 
-for idx in "${!SAMPLES[@]}"; do 
-{
+process_sample() {
+    local idx="$1"
+    log() { echo -e "[$(date '+%F %T')] $*"; }
     sample="${SAMPLES[$idx]}"
     barcode="${BARCODES[$idx]}"
     organism="${ORGANISMS[$idx]}"
-    collection="${COLLECTIONS[$idx]}"
+    collection="${COLLECTIONDATE[$idx]}"
 
     # Set sample_dir to the latest available timepoint
     sample_dir=""
@@ -48,20 +49,20 @@ for idx in "${!SAMPLES[@]}"; do
 
     if [[ -z "$sample_dir" ]]; then
         log "❌ No timepoint directory found for $sample (checked 72h, 48h, 24h) - skipping"
-        continue
+        return
     fi
 
     mkdir -p "${sample_dir}/logs"
     LOGFILE="${sample_dir}/logs/pipeline.log"
 
-    log() { echo -e "[$(date '+%F %T')] $*"; }
     exec 3>&1 4>&2
     exec > >(tee -a "$LOGFILE") 2>&1
+    trap 'exec 1>&3 2>&4; exec 3>&- 4>&-' RETURN
 
     if [[ -f "${sample_dir}/mlst_result.tsv" ]]; then
-        log "Assembly complete for $sample - proceed"
+        log "Assembly and MLST result present for $sample - proceed"
         else 
-        log "Assembly failed for $sample - sample skipped"; continue
+        log "No assembly and/or MLST result for $sample - sample skipped"; status="FAILED"; failed_step="no_assembly"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
 
     log "========== Processing sample: $sample ($organism) =========="
@@ -90,7 +91,7 @@ for idx in "${!SAMPLES[@]}"; do
         status="FAILED"
         failed_step="$step"
         echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
-        continue
+        return
     fi
 
     mlst_tree_dir="${species_tree_dir}/ST${sequence_type}"
@@ -114,13 +115,17 @@ for idx in "${!SAMPLES[@]}"; do
     # ---------------- STEP 2: Picking Reference for ST specifc tree ----------------
     step="tree_reference_pick"; step_start=$(date +%s)
     REF_CIRCULAR=false
+    REF_SAMPLE=""
 
     # Sort by collection date (oldest first), prefer circular=true
     while IFS=, read -r sample_name collection_date; do
         [[ "$sample_name" == "sample" ]] && continue
 
         fasta="${mlst_tree_dir}/${sample_name}.fasta"
-        [[ ! -f "$fasta" ]] && continue
+        if [[ ! -f "$fasta" ]]; then
+            log "⚠️ Missing fasta for $sample_name, skipping as reference candidate"
+            continue
+        fi
 
         if head -n 1 "$fasta" | grep -q "circular=true"; then
             REF_SAMPLE="$sample_name"
@@ -139,7 +144,7 @@ for idx in "${!SAMPLES[@]}"; do
         status="FAILED"
         failed_step="$step"
         echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
-        continue
+        return
     fi
 
     grep -A1 "^>1 " "${mlst_tree_dir}/${REF_SAMPLE}.fasta" > "${mlst_tree_dir}/ref_full_genome.fasta"
@@ -152,7 +157,7 @@ for idx in "${!SAMPLES[@]}"; do
     fi
 
     if ! samtools faidx "$REF_FASTA"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
 
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
@@ -164,7 +169,7 @@ for idx in "${!SAMPLES[@]}"; do
     if ! minimap2 -x map-ont -a -t "$THREADS" "$REF_FASTA" "$mlst_tree_dir/${sample}.fastq.gz" \
         | samtools view -h -F 4 \
         | samtools sort -O BAM -o "${mlst_tree_dir}/${bam}"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     samtools index "${mlst_tree_dir}/${bam}"
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
@@ -185,7 +190,7 @@ for idx in "${!SAMPLES[@]}"; do
             --haploid_precise \
             --no_phasing_for_fa \
             --enable_long_indel; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     mv -v "${mlst_tree_dir}/clair3/${sample}/merge_output.vcf.gz" "${mlst_tree_dir}/${sample}_full.vcf.gz"
     # Filter variants to split MNVs to SNVs and keep only varints that pass filter
@@ -201,7 +206,7 @@ for idx in "${!SAMPLES[@]}"; do
     log "Generating consensus sequence for $sample";
     bedtools genomecov -ibam "${mlst_tree_dir}/${bam}" -bga | awk '$4 < 10' > "${mlst_tree_dir}/${sample}.bed" # Generate coverage less than 10 bed file
     if ! bcftools consensus -H A -f "$REF_FASTA" -m "${mlst_tree_dir}/${sample}.bed" "${mlst_tree_dir}/${sample}_filtered.vcf.gz" > "${mlst_tree_dir}/${sample}_consensus.fasta"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi # Generate consensus, masking low cov regions
     sed -i "s/>.*$/>${sample}/" "${mlst_tree_dir}/${sample}_consensus.fasta" # Change name of sequences in consensus fasta file to sample name
     cat ${mlst_tree_dir}/*_consensus.fasta > ${mlst_tree_dir}/alignment.fasta
@@ -226,7 +231,7 @@ for idx in "${!SAMPLES[@]}"; do
             --p-value "0.5" \
             --trimming-ratio "1.5" \
             ${mlst_tree_dir}/alignment.fasta; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     coresnpfilter -c "1.0" "${mlst_tree_dir}/ST${sequence_type}.filtered_polymorphic_sites.fasta" > "${mlst_tree_dir}/ST${sequence_type}.filtered_polymorphic_sites_core.fasta"
     snp-dists -j 1 "${mlst_tree_dir}/ST${sequence_type}.filtered_polymorphic_sites_core.fasta" > ${mlst_tree_dir}/ST${sequence_type}.snp_distances.tsv
@@ -235,13 +240,15 @@ for idx in "${!SAMPLES[@]}"; do
 
     # ---------------- STEP 7: Generate tree image ----------------
     step="tree"; step_start=$(date +%s)
-    conda run -n $ENV_GUBBINS plot_gubbins.R -t "${mlst_tree_dir}/ST${sequence_type}.node_labelled.final_tree.tre" \
+    if ! conda run -n $ENV_GUBBINS plot_gubbins.R -t "${mlst_tree_dir}/ST${sequence_type}.node_labelled.final_tree.tre" \
         -r "${mlst_tree_dir}/ST${sequence_type}.recombination_predictions.gff" \
         -o "${sample_dir}/ST${sequence_type}.node_labelled.final_tree.png" \
         --taxon-label-size "2" \
         --tree-width "10" \
         --show-taxa \
-        --tree-axis-expansion "100"
+        --tree-axis-expansion "100"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+    fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- Stage complete ----------------
@@ -250,6 +257,8 @@ for idx in "${!SAMPLES[@]}"; do
     status="Phylogenetic analysis COMPLETE"
     echo -e "${sample}\t${status}\t${failed_step}\t${total_time}" >> "${MASTER_SUMMARY}"
     log "✅ Sample $sample Phylogenetic analysis completed in ${total_time}s"
-    exec 1>&3 2>&4
-    exec 3>&- 4>&-
-}; done
+}
+
+for idx in "${!SAMPLES[@]}"; do
+    process_sample "$idx"
+done
