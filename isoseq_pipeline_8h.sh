@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.8 - 8h stage - (Initial read-based MLST and AMR)
+# Isolate Sequencing Pipeline v0.9 - 8h stage - (Initial read-based MLST and AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -14,27 +14,29 @@ RUN_NAME="$5"
 
 # ---------------------- READ SAMPLESHEET -----------------------
 SAMPLES=(); BARCODES=(); ORGANISMS=(); COLLECTIONDATE=()
-while IFS=, read -r barcode sample organism collection; do
+while IFS=, read -r barcode sample organism collection || [[ -n "$barcode" ]]; do
     [[ "$barcode" == "barcode" || -z "$barcode" ]] && continue
-    if [[ -z "${species_dict_size[$organism]:-}" ]]; then
+    # "Unknown" is an explicitly allowed value and bypasses the dict lookup below.
+    # Any other unrecognized organism still hard-fails the run.
+    if [[ "$organism" != "Unknown" && -z "${species_dict_size[$organism]:-}" ]]; then
         echo "❌ Unknown organism: $organism"; exit 1
     fi
     SAMPLES+=("$sample")
     BARCODES+=("$barcode")
     ORGANISMS+=("$organism")
-    COLLECTIONS+=("$collection")
+    COLLECTIONDATE+=("$collection")
 done < "$SAMPLESHEET"
 
 # ============================================================== 
 # PER-SAMPLE PIPELINE 
 # ============================================================== 
 
-for idx in "${!SAMPLES[@]}"; do 
-{
+process_sample() {
+    local idx="$1"
     sample="${SAMPLES[$idx]}"
     barcode="${BARCODES[$idx]}"
     organism="${ORGANISMS[$idx]}"
-    collection="${COLLECTIONS[$idx]}"
+    collection="${COLLECTIONDATE[$idx]}"
 
     sample_dir="/data/IsoSeq_results/${sample}/8h"
     mkdir -p "${sample_dir}/logs"
@@ -47,6 +49,7 @@ for idx in "${!SAMPLES[@]}"; do
     log() { echo -e "[$(date '+%F %T')] $*"; }
     exec 3>&1 4>&2
     exec > >(tee -a "$LOGFILE") 2>&1
+    trap 'exec 1>&3 2>&4; exec 3>&- 4>&-' RETURN
 
     log "========== Processing sample: $sample ($organism) =========="
     start_total=$(date +%s)
@@ -62,11 +65,11 @@ for idx in "${!SAMPLES[@]}"; do
         log "⚠️ No FASTQ found for barcode${barcode}"
         status="FAILED"; failed_step="$step"
         echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
-        continue
+        return
     fi
     log "Concatenating ${#files[@]} fastq files → ${sample_dir}/${sample}.fastq.gz"
     if ! cat "${files[@]}" > "${sample_dir}/${sample}_raw.fastq.gz"; then
-       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     ontime --to 8h -o "${sample_dir}/${sample}.fastq.gz" "${sample_dir}/${sample}_raw.fastq.gz"  # Use ontime to filter for only reads for this step
     rm -vf "${sample_dir}/${sample}_raw.fastq.gz"
@@ -77,8 +80,8 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
     fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split > /dev/tty; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"
     rm -vf "$fq"
@@ -91,44 +94,50 @@ for idx in "${!SAMPLES[@]}"; do
     kraken_out="${sample_dir}/kraken2/kraken2_output.tsv"
     kraken_report="${sample_dir}/kraken2/kraken2_report.tsv"
     if ! kraken2 --db "$KRAKEN2_DB" --threads "$THREADS" --output "$kraken_out" --report "$kraken_report" --use-names "${sample_dir}/trimmed/${sample}.fastq.gz"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     python3 "$PY_KRAKEN_SUMMARY" --input "${sample_dir}/kraken2/kraken2_report.tsv" --output "${sample_dir}/kraken2_top5_taxa.csv"
     kraken_summary="${sample_dir}/kraken2_top5_taxa.csv"
     if [[ -f "$kraken_summary" ]]; then
         top_hit=$(awk -F, 'NR>1 && $1 {print $2; exit}' "$kraken_summary")
-        if [[ "$top_hit" != "$organism" ]]; then
-            log "❌ Species mismatch: expected $organism, got $top_hit"; status="FAILED"; failed_step="species_mismatch"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        if [[ "$organism" == "Unknown" ]]; then
+            log "ℹ️ Organism marked Unknown — skipping species-match check (Kraken2 top hit: $top_hit)"
+        elif [[ "$top_hit" != "$organism" ]]; then
+            log "❌ Species mismatch: expected $organism, got $top_hit"; status="FAILED"; failed_step="species_mismatch"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
         else
-                log "✅ Species match confirmed for $sample: $top_hit (expected: $organism)"
-            fi
-        else
-        log "⚠️ Kraken summary file not found for $sample"; continue
+            log "✅ Species match confirmed for $sample: $top_hit (expected: $organism)"
+        fi
+    else
+        log "⚠️ Kraken summary file not found for $sample"; status="FAILED"; failed_step="kraken2_summary_missing"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------------- STEP 4: Read-based MLST ----------------
+    # ---------------- STEP 4: Read-based MLST (skipped if organism is Unknown) ----------------
     step="mlst_reads"; step_start=$(date +%s)
-    log "▶ Step $step"
-    mkdir -p ${sample_dir}/mlst_reads
-    rm -vf ${sample_dir}/"mlst_reads/krocusmlst.tsv" # Remove any previous runs, baisically an overwrite
-    read_mlst="${species_dict_read_mlst[$organism]}"
-    if ! krocus -k "19" -o "${sample_dir}/mlst_reads/krocusmlst.tsv" "${KROCUS_DB}/${read_mlst}/" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if [[ "$organism" == "Unknown" ]]; then
+        log "⏭️  Skipping Step $step (organism marked Unknown — no MLST scheme to use)"
+    else
+        log "▶ Step $step"
+        mkdir -p ${sample_dir}/mlst_reads
+        rm -vf ${sample_dir}/"mlst_reads/krocusmlst.tsv" # Remove any previous runs, baisically an overwrite
+        read_mlst="${species_dict_read_mlst[$organism]}"
+        if ! krocus -k "19" -o "${sample_dir}/mlst_reads/krocusmlst.tsv" "${KROCUS_DB}/${read_mlst}/" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
+        tail -n1 "${sample_dir}/mlst_reads/krocusmlst.tsv" > "${sample_dir}/mlst_result.tsv"
+        sequence_type=$(awk '{print $1; exit}' "${sample_dir}/mlst_result.tsv")
+        log "Multi-locus Sequence Type found for $top_hit: ST${sequence_type}"
+        step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
     fi
-    tail -n1 "${sample_dir}/mlst_reads/krocusmlst.tsv" > "${sample_dir}/mlst_result.tsv"
-    sequence_type=$(awk '{print $1; exit}' "${sample_dir}/mlst_result.tsv")
-    log "Multi-locus Sequence Type found for $top_hit: ST${sequence_type}" 
-    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 5: AMRFINDER for AMR gene and virulence factor prediction ----------------
     step="amrfinder"; step_start=$(date +%s)
     log "▶ Step $step"
     if ! seqkit fq2fa "${sample_dir}/trimmed/${sample}.fastq.gz" > "${sample_dir}/trimmed/${sample}.fasta"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     if ! amrfinder -n "${sample_dir}/trimmed/${sample}.fasta" -c "0.8" --threads "$THREADS" -o "${sample_dir}/amrfinder.tsv" --plus; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
@@ -138,6 +147,8 @@ for idx in "${!SAMPLES[@]}"; do
     status="8h COMPLETE"
     echo -e "${sample}\t${status}\t${failed_step}\t${total_time}" >> "${MASTER_SUMMARY}"
     log "✅ Sample $sample 8h analysis completed in ${total_time}s"
-    exec 1>&3 2>&4
-    exec 3>&- 4>&-
-}; done
+}
+
+for idx in "${!SAMPLES[@]}"; do
+    process_sample "$idx"
+done
