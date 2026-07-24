@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Master Pipeline v0.8
+# Isolate Sequencing Master Pipeline v0.9
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # -------------------------- ARG PARSE --------------------------
 THREADS=1
@@ -82,8 +84,26 @@ while true; do
 
     # ---------------------------------
     # Calculate active sequencing time
+    # Column position of "start_time" varies between MinKNOW/Guppy versions
+    # (e.g. R9 summaries lack the filename_bam column that R10 has, shifting
+    # every later column left by one), so look the column up by header name
+    # each time rather than assuming a fixed index.
     # ---------------------------------
-    last_start=$(awk -F'\t' 'NR>1 {if ($11>max) max=$11} END {print int(max)}' "$SUMMARY_FILE")
+    last_start=$(awk -F'\t' '
+        NR==1 {
+            for (i=1; i<=NF; i++) { if ($i=="start_time") col=i }
+            if (!col) { print "NO_START_TIME_COL"; exit 1 }
+            next
+        }
+        { if ($col>max) max=$col }
+        END { print int(max) }
+    ' "$SUMMARY_FILE")
+
+    if [[ "$last_start" == "NO_START_TIME_COL" || -z "$last_start" ]]; then
+        echo "❌ Could not find 'start_time' column in $SUMMARY_FILE - skipping this iteration"
+        sleep 600
+        continue
+    fi
 
     elapsed_hours=$((last_start / 3600))
 
@@ -94,8 +114,11 @@ while true; do
     # ---------------------------------
     if (( last_start >= 28800 )) && [[ ! -f "$STAGE1_FLAG" ]]; then
         echo "▶ Running 8h analysis"
-        bash isoseq_pipeline_8h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
-        touch "$STAGE1_FLAG"
+        if bash "${SCRIPT_DIR}/isoseq_pipeline_8h.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+            touch "$STAGE1_FLAG"
+        else
+            echo "❌ 8h analysis failed"
+        fi
     fi
 
     #---------------------------------
@@ -103,10 +126,15 @@ while true; do
     #---------------------------------
     if (( last_start >= 86400 )) && [[ ! -f "$STAGE2_FLAG" ]]; then
         echo "▶ Running 24h analysis"
-        bash isoseq_pipeline_24h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        if bash "${SCRIPT_DIR}/isoseq_pipeline_24h.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+            touch "$STAGE2_FLAG"
+        else
+            echo "❌ 24h analysis failed"
+        fi
         echo "▶ Running phylogenetic analysis (24h)"
-        bash isoseq_pipeline_tree.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
-        touch "$STAGE2_FLAG"
+        if ! bash "${SCRIPT_DIR}/isoseq_pipeline_tree.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+            echo "❌ Phylogenetic analysis (24h) failed"
+        fi
     fi
 
     #---------------------------------
@@ -114,10 +142,15 @@ while true; do
     #---------------------------------
     if (( last_start >= 172800 )) && [[ ! -f "$STAGE3_FLAG" ]]; then
         echo "▶ Running 48h analysis"
-        bash isoseq_pipeline_48h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        if bash "${SCRIPT_DIR}/isoseq_pipeline_48h.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+            touch "$STAGE3_FLAG"
+        else
+            echo "❌ 48h analysis failed"
+        fi
         echo "▶ Running phylogenetic analysis (48h)"
-        bash isoseq_pipeline_tree.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
-        touch "$STAGE3_FLAG"
+        if ! bash "${SCRIPT_DIR}/isoseq_pipeline_tree.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+            echo "❌ Phylogenetic analysis (48h) failed"
+        fi
     fi
 
     # ---------------------------------
@@ -135,25 +168,30 @@ while true; do
 	# ---------------------------------
         if [[ ! -f "$STAGE4_FLAG" ]]; then
         	echo "▶ Running 72h analysis"
-        	bash isoseq_pipeline_72h.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
-        	touch "$STAGE4_FLAG"
+        	if bash "${SCRIPT_DIR}/isoseq_pipeline_72h.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+        		touch "$STAGE4_FLAG"
+        	else
+        		echo "❌ 72h analysis failed"
+        	fi
     	fi
 
         # ---------------------------------
     	# Tree building Stage - Will always re-run if pipeline is started
     	# ---------------------------------
         echo "▶ Running phylogenetic analysis (End of run)"
-        bash isoseq_pipeline_tree.sh "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"
+        if ! bash "${SCRIPT_DIR}/isoseq_pipeline_tree.sh" "$SAMPLESHEET" "$THREADS" "$RUN_DIR" "$MASTER_SUMMARY" "$RUN_NAME"; then
+            echo "❌ Phylogenetic analysis (End of run) failed"
+        fi
 
         echo "All stages complete. Exiting monitor."
         break
     fi
 
     # ---------------------------------
-    # Sleep 30 minutes
+    # Sleep 1 hour
     # ---------------------------------
-    echo "Sleeping for 30 minutes..."
-    sleep 1800
+    echo "Sleeping for 1 hour..."
+    sleep 3600
 
 done
 
