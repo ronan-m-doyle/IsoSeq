@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline Config v0.8
+# Isolate Sequencing Pipeline Config v0.9
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -31,7 +31,10 @@ declare -A species_dict_read_mlst=(
     ["Pseudomonas aeruginosa"]="Pseudomonas_aeruginosa"
     ["Klebsiella oxytoca"]="Klebsiella_oxytoca"
     ["Legionella pneumophila"]="Legionella_pneumophila"
-    ["Candidozyma auris"]="Candidozyma_auris"
+    ["Streptococcus pneumoniae"]="Streptococcus_pneumoniae"
+    ["Klebsiella aerogenes"]="Klebsiella_aerogenes"
+    ["Corynebacterium diphtheriae"]="Corynebacterium_diphtheriae"
+    ["Listeria monocytogenes"]="Listeria_monocytogenes"
 )
 
 declare -A species_dict_mlst_contigs=(
@@ -46,7 +49,10 @@ declare -A species_dict_mlst_contigs=(
     ["Pseudomonas aeruginosa"]="paeruginosa"
     ["Klebsiella oxytoca"]="koxytoca"
     ["Legionella pneumophila"]="lpneumophila"
-    ["Candidozyma auris"]="calbicans"
+    ["Streptococcus pneumoniae"]="spneumoniae"
+    ["Klebsiella aerogenes"]="kaerogenes"
+    ["Corynebacterium diphtheriae"]="diphtheria_3"
+    ["Listeria monocytogenes"]="listeria_2"
 )
 
 declare -A species_dict_amrfinder=(
@@ -60,7 +66,9 @@ declare -A species_dict_amrfinder=(
     ["Enterobacter hormaechei"]="Enterobacter_cloacae"
     ["Pseudomonas aeruginosa"]="Pseudomonas_aeruginosa"
     ["Klebsiella oxytoca"]="Klebsiella_oxytoca"
-    ["Candidozyma auris"]=""
+    ["Streptococcus pneumoniae"]="Streptococcus_pneumoniae"
+    ["Klebsiella aerogenes"]="Klebsiella_pneumoniae"
+    ["Corynebacterium diphtheriae"]="Corynebacterium_diphtheriae"
 )
 
 declare -A species_dict_busco=(
@@ -75,7 +83,10 @@ declare -A species_dict_busco=(
     ["Pseudomonas aeruginosa"]="pseudomonas_odb12"
     ["Klebsiella oxytoca"]="enterobacteriaceae_odb12"
     ["Legionella pneumophila"]="legionellaceae_odb12"
-    ["Candidozyma auris"]="debaryomycetaceae_odb12"
+    ["Streptococcus pneumoniae"]="streptococcaceae_odb12.2"
+    ["Klebsiella aerogenes"]="enterobacteriaceae_odb12"
+    ["Corynebacterium diphtheriae"]="corynebacterium_odb12.2"
+    ["Listeria monocytogenes"]="listeria_odb12.2"
 )
 
 declare -A species_dict_size=(
@@ -90,5 +101,8 @@ declare -A species_dict_size=(
     ["Pseudomonas aeruginosa"]="6.3m"
     ["Klebsiella oxytoca"]="5.9m"
     ["Legionella pneumophila"]="3.4m"
-    ["Candidozyma auris"]="12.4m"
+    ["Streptococcus pneumoniae"]="2.0m"
+    ["Klebsiella aerogenes"]="5.3m"
+    ["Corynebacterium diphtheriae"]="2.5m"
+    ["Listeria monocytogenes"]="2.9m"
 )
