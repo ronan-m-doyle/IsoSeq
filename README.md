@@ -8,8 +8,6 @@ git clone https://github.com/ronan-m-doyle/IsoSeq.git
 cd IsoSeq/
 
 mamba env create -f isoseq_pipeline_env.yml -n isoseq_pipeline
-mamba create -n abricate -c conda-forge -c bioconda abricate
-mamba create -n abritamr -c bioconda abritamr
 mamba create -n mlst_contigs -c conda-forge -c bioconda mlst
 mamba create -n gubbins -c bioconda gubbins
 mamba create -n clair3 -c bioconda clair3
