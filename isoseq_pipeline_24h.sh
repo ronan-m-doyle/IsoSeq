@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.8 - 24h stage - (Assembly, QC, MLST, AMR)
+# Isolate Sequencing Pipeline v0.9 - 24h stage - (Assembly, QC, MLST, AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -14,27 +14,27 @@ RUN_NAME="$5"
 
 # ---------------------- READ SAMPLESHEET -----------------------
 SAMPLES=(); BARCODES=(); ORGANISMS=(); COLLECTIONDATE=()
-while IFS=, read -r barcode sample organism collection; do
+while IFS=, read -r barcode sample organism collection || [[ -n "$barcode" ]]; do
     [[ "$barcode" == "barcode" || -z "$barcode" ]] && continue
-    if [[ -z "${species_dict_size[$organism]:-}" ]]; then
+    if [[ "$organism" != "Unknown" && -z "${species_dict_size[$organism]:-}" ]]; then
         echo "❌ Unknown organism: $organism"; exit 1
     fi
     SAMPLES+=("$sample")
     BARCODES+=("$barcode")
     ORGANISMS+=("$organism")
-    COLLECTIONS+=("$collection")
+    COLLECTIONDATE+=("$collection")
 done < "$SAMPLESHEET"
 
 # ============================================================== 
 # PER-SAMPLE PIPELINE 
 # ============================================================== 
 
-for idx in "${!SAMPLES[@]}"; do 
-{
+process_sample() {
+    local idx="$1"
     sample="${SAMPLES[$idx]}"
     barcode="${BARCODES[$idx]}"
     organism="${ORGANISMS[$idx]}"
-    collection="${COLLECTIONS[$idx]}"
+    collection="${COLLECTIONDATE[$idx]}"
 
     sample_dir="/data/IsoSeq_results/${sample}/24h"
     mkdir -p "${sample_dir}/logs"
@@ -47,11 +47,14 @@ for idx in "${!SAMPLES[@]}"; do
     log() { echo -e "[$(date '+%F %T')] $*"; }
     exec 3>&1 4>&2
     exec > >(tee -a "$LOGFILE") 2>&1
+    trap 'exec 1>&3 2>&4; exec 3>&- 4>&-' RETURN
 
     if [[ -f "/data/IsoSeq_results/${sample}/8h/kraken2_top5_taxa.csv" ]]; then
         top_hit=$(awk -F, 'NR>1 && $1 {print $2; exit}' "/data/IsoSeq_results/${sample}/8h/kraken2_top5_taxa.csv")
-        if [[ "$top_hit" != "$organism" ]]; then
-            log "8h analysis failed for $sample - sample skipped"; continue
+        if [[ "$organism" == "Unknown" ]]; then
+            log "ℹ️ Organism marked Unknown — skipping 8h species consistency check (8h Kraken2 top hit: $top_hit)"
+        elif [[ "$top_hit" != "$organism" ]]; then
+            log "8h analysis failed for $sample - sample skipped"; status="FAILED"; failed_step="8h_species_mismatch"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
             fi
     fi
 
@@ -69,11 +72,11 @@ for idx in "${!SAMPLES[@]}"; do
         log "⚠️ No FASTQ found for barcode${barcode}"
         status="FAILED"; failed_step="$step"
         echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
-        continue
+        return
     fi
     log "Concatenating ${#files[@]} fastq files → ${sample_dir}/${sample}.fastq.gz"
     if ! cat "${files[@]}" > "${sample_dir}/${sample}_raw.fastq.gz"; then
-       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     ontime --to 24h -o "${sample_dir}/${sample}.fastq.gz" "${sample_dir}/${sample}_raw.fastq.gz"  # Use ontime to filter for only reads for this step
     rm -vf "${sample_dir}/${sample}_raw.fastq.gz"
@@ -84,8 +87,8 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
     fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split > /dev/tty; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"
     rm -vf "$fq"
@@ -95,9 +98,16 @@ for idx in "${!SAMPLES[@]}"; do
     step="assembly"; step_start=$(date +%s)
     log "▶ Step $step"
     outdir="${sample_dir}/assemblies"; mkdir -p "$outdir"
-    size="${species_dict_size[$organism]}"
-    if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -s "$size" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if [[ "$organism" == "Unknown" ]]; then
+        log "ℹ️ Organism marked Unknown — running assembly without genome size estimate (-s)"
+        if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
+    else
+        size="${species_dict_size[$organism]}"
+        if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -s "$size" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
@@ -106,7 +116,7 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     asm="${sample_dir}/assemblies/${sample}.fasta"; depth="${sample_dir}/qc/genome_coverage_depth.txt"
     if ! minimap2 -x map-ont --secondary no -a -t "$THREADS" "$asm" "${sample_dir}/trimmed/${sample}.fastq.gz" | samtools sort -O BAM | samtools coverage - | cut -f 7 | head -n 2 > "$depth"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
@@ -114,7 +124,7 @@ for idx in "${!SAMPLES[@]}"; do
     step="quast"; step_start=$(date +%s)
     log "▶ Step $step"
     if ! quast -o "${sample_dir}/qc/quast" -t "$THREADS" -m 100 -l "$sample" "$asm"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
@@ -123,46 +133,53 @@ for idx in "${!SAMPLES[@]}"; do
     log "▶ Step $step"
     gfa="${sample_dir}/assemblies/${sample}/autocycler_out/consensus_assembly.gfa"
     if ! Bandage image "$gfa" "${sample_dir}/qc/assembly_image.svg"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 7: BUSCO ----------------
     step="busco"; step_start=$(date +%s)
-    log "▶ Step $step"
-    mkdir -p "${sample_dir}/qc/busco_results"
-    lineage="${species_dict_busco[$organism]}"
-    if ! busco -i "$asm" -f -m genome -l "$lineage" -c "$THREADS" --out_path "${sample_dir}/qc/busco_results" -o "$sample"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if [[ "$organism" == "Unknown" ]]; then
+        log "⏭️  Skipping Step $step (organism marked Unknown — no BUSCO lineage to use)"
+    else
+        log "▶ Step $step"
+        mkdir -p "${sample_dir}/qc/busco_results"
+        lineage="${species_dict_busco[$organism]}"
+        if ! busco -i "$asm" -f -m genome -l "$lineage" -c "$THREADS" --out_path "${sample_dir}/qc/busco_results" -o "$sample"; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
+        step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
     fi
-    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------------- STEP 8: PROKKA ----------------
-    step="prokka"; step_start=$(date +%s)
-    log "▶ Step $step"
-    if ! prokka --outdir "${sample_dir}/assemblies/" --force --prefix "$sample" --kingdom "Bacteria" --cpus "$THREADS" --gcode 11 "${sample_dir}/assemblies/${sample}.fasta"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
-    fi
-    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
-
-    # ---------------- STEP 9: AMRFINDER ----------------
+    # ---------------- STEP 8: AMRFINDER ----------------
     step="amrfinder"; step_start=$(date +%s)
     log "▶ Step $step"
-    amr_species="${species_dict_amrfinder[$organism]}"
-    if ! amrfinder -p "${sample_dir}/assemblies/${sample}.faa" -n "${sample_dir}/assemblies/${sample}.fasta" -g "${sample_dir}/assemblies/${sample}.gff" -a "prokka" --organism "$amr_species" --threads "$THREADS" -o "${sample_dir}/amrfinder.tsv" --plus --report_common; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if [[ "$organism" == "Unknown" || "$organism" == "Listeria monocytogenes" ]]; then
+        log "ℹ️ Organism marked $organism — running AMRFinder without --organism option"
+        if ! amrfinder -n "${sample_dir}/assemblies/${sample}.fasta" --threads "$THREADS" -o "${sample_dir}/amrfinder.tsv" --plus; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
+    else
+        amr_species="${species_dict_amrfinder[$organism]}"
+        if ! amrfinder -n "${sample_dir}/assemblies/${sample}.fasta" --organism "$amr_species" --threads "$THREADS" -o "${sample_dir}/amrfinder.tsv" --plus --report_common; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
-    # ---------------- STEP 10: MLST contigs ----------------
+    # ---------------- STEP 9: MLST contigs ----------------
     step="mlst_contigs"; step_start=$(date +%s)
-    log "▶ Step $step"
-    mkdir -p ${sample_dir}/mlst_contigs
-    scheme="${species_dict_mlst_contigs[$organism]}"
-    if ! conda run -n "$ENV_MLST" mlst --scheme "$scheme" --full --blastdb "$MLST_BLAST_DB" --datadir "$MLST_DB" "${sample_dir}/assemblies/${sample}.fasta" > "${sample_dir}/mlst_result.tsv"; then
-        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; continue
+    if [[ "$organism" == "Unknown" ]]; then
+        log "⏭️  Skipping Step $step (organism marked Unknown — no MLST scheme to use)"
+    else
+        log "▶ Step $step"
+        mkdir -p ${sample_dir}/mlst_contigs
+        scheme="${species_dict_mlst_contigs[$organism]}"
+        if ! conda run -n "$ENV_MLST" mlst --scheme "$scheme" --full --blastdb "$MLST_BLAST_DB" --datadir "$MLST_DB" "${sample_dir}/assemblies/${sample}.fasta" > "${sample_dir}/mlst_result.tsv"; then
+            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+        fi
+        step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
     fi
-    step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- Stage complete ----------------
     end_total=$(date +%s)
@@ -170,6 +187,8 @@ for idx in "${!SAMPLES[@]}"; do
     status="24h COMPLETE"
     echo -e "${sample}\t${status}\t${failed_step}\t${total_time}" >> "${MASTER_SUMMARY}"
     log "✅ Sample $sample 24h analysis completed in ${total_time}s"
-    exec 1>&3 2>&4
-    exec 3>&- 4>&-
-}; done
+}
+
+for idx in "${!SAMPLES[@]}"; do
+    process_sample "$idx"
+done
