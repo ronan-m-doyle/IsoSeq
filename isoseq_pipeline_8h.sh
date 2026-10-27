@@ -68,8 +68,8 @@ process_sample() {
         return
     fi
     log "Concatenating ${#files[@]} fastq files → ${sample_dir}/${sample}.fastq.gz"
-    if ! cat "${files[@]}" > "${sample_dir}/${sample}_raw.fastq.gz"; then
-       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+    if ! printf '%s\0' "${files[@]}" | xargs -0 cat > "${sample_dir}/${sample}_raw.fastq.gz"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     ontime --to 8h -o "${sample_dir}/${sample}.fastq.gz" "${sample_dir}/${sample}_raw.fastq.gz"  # Use ontime to filter for only reads for this step
     rm -vf "${sample_dir}/${sample}_raw.fastq.gz"
@@ -106,6 +106,22 @@ process_sample() {
             log "❌ Species mismatch: expected $organism, got $top_hit"; status="FAILED"; failed_step="species_mismatch"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
         else
             log "✅ Species match confirmed for $sample: $top_hit (expected: $organism)"
+
+            # ---- Extra check: require top-hit read fraction > 15% ----
+            top_percent=$(awk -F, -v hit="$top_hit" 'NR>1 && $2==hit {print $3; exit}' "$kraken_summary")
+            if [[ -z "$top_percent" ]]; then
+                log "⚠️ Could not determine read fraction for $top_hit"
+                status="FAILED"; failed_step="kraken2_fraction_missing"
+                echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
+                return
+            fi
+            if ! awk -v p="$top_percent" 'BEGIN{exit !(p > 15)}'; then
+                log "❌ Read fraction for $top_hit too low: ${top_percent}% (threshold: >15%)"
+                status="FAILED"; failed_step="kraken2_low_fraction"
+                echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"
+                return
+            fi
+            log "✅ Read fraction check passed for $top_hit: ${top_percent}% (>15%)"
         fi
     else
         log "⚠️ Kraken summary file not found for $sample"; status="FAILED"; failed_step="kraken2_summary_missing"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
