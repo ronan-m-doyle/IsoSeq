@@ -5,7 +5,7 @@
 IFS=$'\n\t'
 
 # -------------------------- CONFIG ----------------------------
-KRAKEN2_DB="/data/IsoSeq/databases/kraken_reference/"
+KRAKEN2_DB="/data/IsoSeq/databases/kraken_reference_16/"
 PY_KRAKEN_SUMMARY="/data/IsoSeq/scripts/kraken2_top5_species.py"
 TREE_BASE="/data/IsoSeq_results/trees/"
 KROCUS_DB="/data/IsoSeq/databases/mlst_krocus/"
@@ -83,10 +83,10 @@ declare -A species_dict_busco=(
     ["Pseudomonas aeruginosa"]="pseudomonas_odb12"
     ["Klebsiella oxytoca"]="enterobacteriaceae_odb12"
     ["Legionella pneumophila"]="legionellaceae_odb12"
-    ["Streptococcus pneumoniae"]="streptococcaceae_odb12.2"
+    ["Streptococcus pneumoniae"]="streptococcaceae_odb12"
     ["Klebsiella aerogenes"]="enterobacteriaceae_odb12"
-    ["Corynebacterium diphtheriae"]="corynebacterium_odb12.2"
-    ["Listeria monocytogenes"]="listeria_odb12.2"
+    ["Corynebacterium diphtheriae"]="corynebacterium_odb12"
+    ["Listeria monocytogenes"]="listeria_odb12"
 )
 
 declare -A species_dict_size=(
