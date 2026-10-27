@@ -107,8 +107,12 @@ process_sample() {
         echo "sample,collection_date" > "$collection_file"
     fi
 
-    # Append current sample and collection date
-    echo "${sample},${collection}" >> "$collection_file"
+    # Append current sample and collection date, do not append if sample has already been run.
+    if grep -q "^${sample}," "$collection_file"; then
+        log "↷ $sample already present in $collection_file - not appending a duplicate row"
+    else
+        echo "${sample},${collection}" >> "$collection_file"
+    fi
 
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
     
@@ -121,7 +125,15 @@ process_sample() {
     while IFS=, read -r sample_name collection_date; do
         [[ "$sample_name" == "sample" ]] && continue
 
+        # Exclude samples with no recorded collection date - otherwise a blank
+        # date sorts as "oldest" and gets incorrectly picked as the reference.
+        if [[ -z "$collection_date" ]]; then
+         log "⚠️ $sample_name has no collection date - excluding from reference selection"
+         continue
+        fi
+
         fasta="${mlst_tree_dir}/${sample_name}.fasta"
+
         if [[ ! -f "$fasta" ]]; then
             log "⚠️ Missing fasta for $sample_name, skipping as reference candidate"
             continue
@@ -166,8 +178,8 @@ process_sample() {
     step="reference_mapping"; step_start=$(date +%s)
     bam="${sample}.bam"
     log "Mapping $sample to $REF_SAMPLE and outputting $bam";
-    if ! minimap2 -x map-ont -a -t "$THREADS" "$REF_FASTA" "$mlst_tree_dir/${sample}.fastq.gz" \
-        | samtools view -h -F 4 \
+    if ! minimap2 -x lr:hq -a -t "$THREADS" "$REF_FASTA" "$mlst_tree_dir/${sample}.fastq.gz" \
+        | samtools view -h -F 4 -q 60 \
         | samtools sort -O BAM -o "${mlst_tree_dir}/${bam}"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
@@ -197,7 +209,7 @@ process_sample() {
     bcftools norm -a -m - "${mlst_tree_dir}/${sample}_full.vcf.gz" |
     bcftools norm -a -d "none" |
     bcftools view -v "snps" -f "PASS" -O "z" |
-    bcftools filter -i "QUAL>=50" -O "z" > "${mlst_tree_dir}/${sample}_filtered.vcf.gz"
+    bcftools filter -i "QUAL>=30" -O "z" > "${mlst_tree_dir}/${sample}_filtered.vcf.gz"
     bcftools index -f "${mlst_tree_dir}/${sample}_filtered.vcf.gz"
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
@@ -218,13 +230,10 @@ process_sample() {
     rm -vrf ${PWD}/tmp*
     if ! conda run -n $ENV_GUBBINS run_gubbins.py --threads "$THREADS" \
             -p "${mlst_tree_dir}/ST${sequence_type}" \
-            --first-tree-builder "iqtree-fast"  \
             --tree-builder "iqtree" \
+            --model-fitter raxml \
             -o "$REF_SAMPLE" \
-            --first-model "JC" \
-            --model "GTRGAMMA" \
-            --model-fitter "raxmlng" \
-            --recon-model "GTR" \
+            --best-model \
             -v \
             -f "90" \
             -m "2" \
