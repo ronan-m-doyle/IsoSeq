@@ -1,8 +1,14 @@
 abritamr.log
 busco_downloads/*
-databases/kraken_reference/*
+databases/kraken_reference_16/*
 pipeline_logs/*
 results/*
 update_abritamr_db.log
 trees/*
 databases/mlst/blast/mlst.fa
+alignment.ckp.gz
+alignment.iqtree
+alignment.log
+alignment.treefile
+alignment.model.gz
+alignment.uniqueseq.phy
