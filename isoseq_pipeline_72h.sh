@@ -76,8 +76,8 @@ process_sample() {
         continue
     fi
     log "Concatenating ${#files[@]} fastq files → ${sample_dir}/${sample}.fastq.gz"
-    if ! cat "${files[@]}" > "${sample_dir}/${sample}_raw.fastq.gz"; then
-       log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+    if ! printf '%s\0' "${files[@]}" | xargs -0 cat > "${sample_dir}/${sample}_raw.fastq.gz"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     ontime --to 72h -o "${sample_dir}/${sample}.fastq.gz" "${sample_dir}/${sample}_raw.fastq.gz"  # Use ontime to filter for only reads for this step
     rm -vf "${sample_dir}/${sample}_raw.fastq.gz"
@@ -116,7 +116,7 @@ process_sample() {
     step="mapping_depth"; step_start=$(date +%s)
     log "▶ Step $step"
     asm="${sample_dir}/assemblies/${sample}.fasta"; depth="${sample_dir}/qc/genome_coverage_depth.txt"
-    if ! minimap2 -x map-ont --secondary no -a -t "$THREADS" "$asm" "${sample_dir}/trimmed/${sample}.fastq.gz" | samtools sort -O BAM | samtools coverage - | cut -f 7 | head -n 2 > "$depth"; then
+    if ! minimap2 -x lr:hq --secondary no -a -t "$THREADS" "$asm" "${sample_dir}/trimmed/${sample}.fastq.gz" | samtools sort -O BAM | samtools coverage - | cut -f 7 | head -n 2 > "$depth"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
