@@ -140,14 +140,11 @@ process_sample() {
 
     # ---------------- STEP 7: BUSCO ----------------
     step="busco"; step_start=$(date +%s)
-    log "▶ Step $step"
-    mkdir -p "${sample_dir}/qc/busco_results"
     if [[ "$organism" == "Unknown" ]]; then
-        log "ℹ️ Organism marked $organism — running BUSCO with --auto-lineage option"
-        if ! busco -i "$asm" -f -m genome --auto-lineage -c "$THREADS" --out_path "${sample_dir}/qc/busco_results" -o "$sample"; then
-            log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
-        fi
+        log "⏭️  Skipping Step $step (organism marked Unknown — no BUSCO lineage to use)"
     else
+        log "▶ Step $step"
+        mkdir -p "${sample_dir}/qc/busco_results"
         lineage="${species_dict_busco[$organism]}"
         if ! busco -i "$asm" -f -m genome -l "$lineage" -c "$THREADS" --out_path "${sample_dir}/qc/busco_results" -o "$sample"; then
             log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
