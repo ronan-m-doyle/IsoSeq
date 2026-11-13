@@ -98,7 +98,6 @@ process_sample() {
     mkdir -p "$species_tree_dir"
     mkdir -p "$mlst_tree_dir"
     cp -v "${sample_dir}/assemblies/${sample}.fasta" "${mlst_tree_dir}/${sample}.fasta" || log "⚠️ copy fasta failed"
-    cp -v "${sample_dir}/trimmed/${sample}.fastq.gz" "${mlst_tree_dir}/${sample}.fastq.gz" || log "⚠️ copy fastq failed"
 
     collection_file="${mlst_tree_dir}/sample_collection_dates.csv"
 
@@ -178,7 +177,7 @@ process_sample() {
     step="reference_mapping"; step_start=$(date +%s)
     bam="${sample}.bam"
     log "Mapping $sample to $REF_SAMPLE and outputting $bam";
-    if ! minimap2 -x lr:hq -a -t "$THREADS" "$REF_FASTA" "$mlst_tree_dir/${sample}.fastq.gz" \
+    if ! minimap2 -x lr:hq -a -t "$THREADS" "$REF_FASTA" "${sample_dir}/trimmed/${sample}.fastq.gz" \
         | samtools view -h -F 4 -q 60 \
         | samtools sort -O BAM -o "${mlst_tree_dir}/${bam}"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
@@ -222,6 +221,9 @@ process_sample() {
     fi # Generate consensus, masking low cov regions
     sed -i "s/>.*$/>${sample}/" "${mlst_tree_dir}/${sample}_consensus.fasta" # Change name of sequences in consensus fasta file to sample name
     cat ${mlst_tree_dir}/*_consensus.fasta > ${mlst_tree_dir}/alignment.fasta
+    
+    rm -f "${mlst_tree_dir}/${bam}" "${mlst_tree_dir}/${bam}.bai" # Remove intermediate bam files
+    rm -rf "${mlst_tree_dir}/clair3/${sample}" # Remove Clair3 intermediates
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 6: Filter recombination and generate tree and SNP distance matrix ----------------
