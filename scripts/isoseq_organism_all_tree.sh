@@ -101,18 +101,37 @@ mv "$tmp_csv" "$combined_csv"
 step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s - combined CSV: $combined_csv"
 
 # ---------------------------- LOAD SAMPLES ----------------------------
-SAMPLES=(); declare -A COLLECTION_OF; declare -A ST_OF
+# Trimmed reads are read from the original per-sample results directory
+# (latest timepoint first, as in the per-ST tree script) rather than from a
+# copy in the ST folder.
+find_sample_fastq() {
+    local s="$1" tp f
+    for tp in 72h 48h 24h; do
+        f="/data/IsoSeq_results/${s}/${tp}/trimmed/${s}.fastq.gz"
+        if [[ -f "$f" ]]; then
+            echo "$f"
+            return 0
+        fi
+    done
+    return 1
+}
+
+SAMPLES=(); declare -A COLLECTION_OF; declare -A ST_OF; declare -A FASTQ_OF
 while IFS=, read -r sample_name collection_date st_num; do
     [[ "$sample_name" == "sample" || -z "$sample_name" ]] && continue
     fasta="${species_tree_dir}/ST${st_num}/${sample_name}.fasta"
-    fastq="${species_tree_dir}/ST${st_num}/${sample_name}.fastq.gz"
-    if [[ ! -f "$fasta" || ! -f "$fastq" ]]; then
-        log "⚠️ Missing fasta/fastq for $sample_name in ST${st_num} - skipping"
+    if [[ ! -f "$fasta" ]]; then
+        log "⚠️ Missing fasta for $sample_name in ST${st_num} - skipping"
+        continue
+    fi
+    if ! fastq=$(find_sample_fastq "$sample_name"); then
+        log "⚠️ No trimmed fastq for $sample_name in /data/IsoSeq_results/${sample_name}/{72h,48h,24h}/trimmed - skipping"
         continue
     fi
     SAMPLES+=("$sample_name")
     COLLECTION_OF["$sample_name"]="$collection_date"
     ST_OF["$sample_name"]="$st_num"
+    FASTQ_OF["$sample_name"]="$fastq"
 done < "$combined_csv"
 
 if [[ "${#SAMPLES[@]}" -eq 0 ]]; then
@@ -172,9 +191,10 @@ if [[ -f "$ref_marker_file" ]]; then
     if [[ "$previous_ref" != "$REF_SAMPLE" ]]; then
         log "⚠️ Reference changed since last run (was: $previous_ref, now: $REF_SAMPLE)."
         log "⚠️ All existing per-sample consensus fastas are against the OLD reference - purging them to force a full re-run."
-        for sample in "${SAMPLES[@]}"; do
-            rm -vf "${species_tree_dir}/${sample}_consensus.fasta"
-        done
+        # Purge ALL consensus fastas, not just current SAMPLES - a sample skipped
+        # this run (e.g. fastq missing) would otherwise leave an old-reference
+        # consensus behind.
+        rm -vf "${species_tree_dir}"/*_consensus.fasta
         # Downstream combined outputs are now stale too, regardless of per-sample state
         rm -vf "${species_tree_dir}/alignment.fasta" \
                "${species_tree_dir}/${species}"*.tre \
@@ -193,13 +213,27 @@ fi
 
 # ---------------------------- STEP 2: Map / call / consensus per sample (serial, full threads each) ----------------------------
 step="sample_processing"; step_start=$(date +%s)
+# Remove every per-sample intermediate (BAM, index, VCFs, BED, Clair3 dir).
+# Called on success AND on every failure path, so nothing large is left behind.
+# The consensus fasta is kept so re-runs on the same reference are quick.
+cleanup_sample() {
+    local s="$1"
+    rm -vf "${species_tree_dir}/${s}.bam" "${species_tree_dir}/${s}.bam.bai" \
+           "${species_tree_dir}/${s}_full.vcf.gz" \
+           "${species_tree_dir}/${s}_filtered.vcf.gz" \
+           "${species_tree_dir}/${s}_filtered.vcf.gz.csi" \
+           "${species_tree_dir}/${s}.bed" \
+           "${species_tree_dir}/${s}_consensus.fasta.tmp"
+    rm -vrf "${species_tree_dir}/clair3/${s}"
+}
+
 for sample in "${SAMPLES[@]}"; do
     st="${ST_OF[$sample]}"
-    sample_fastq="${species_tree_dir}/ST${st}/${sample}.fastq.gz"
+    sample_fastq="${FASTQ_OF[$sample]}"
     consensus_fasta="${species_tree_dir}/${sample}_consensus.fasta"
     bam="${species_tree_dir}/${sample}.bam"
 
-    if [[ -f "$consensus_fasta" ]]; then
+    if [[ -s "$consensus_fasta" ]]; then
         log "↷ $sample already has a consensus fasta - skipping"
         continue
     fi
@@ -209,12 +243,17 @@ for sample in "${SAMPLES[@]}"; do
     # ---- Mapping ----
     log "Mapping $sample to $REF_SAMPLE"
     if ! minimap2 -x lr:hq -a -t "$THREADS" "$REF_FASTA" "$sample_fastq" \
-        | samtools view -h -F 4 \
+        | samtools view -h -F 4 -q 60 \
         | samtools sort -O BAM -o "$bam"; then
         log "❌ Mapping failed for $sample - skipping sample"
+        cleanup_sample "$sample"
         continue
     fi
-    samtools index "$bam"
+    if ! samtools index "$bam"; then
+        log "❌ BAM indexing failed for $sample - skipping sample"
+        cleanup_sample "$sample"
+        continue
+    fi
 
     # ---- Variant calling ----
     log "Calling variants for $sample against $REF_SAMPLE"
@@ -232,33 +271,33 @@ for sample in "${SAMPLES[@]}"; do
             --no_phasing_for_fa \
             --enable_long_indel; then
         log "❌ Variant calling failed for $sample - skipping sample"
+        cleanup_sample "$sample"
         continue
     fi
     mv -v "${species_tree_dir}/clair3/${sample}/merge_output.vcf.gz" "${species_tree_dir}/${sample}_full.vcf.gz"
+    # Split MNVs to SNVs and keep only PASS SNPs with QUAL>=30 (matches per-ST tree)
     bcftools norm -a -m - "${species_tree_dir}/${sample}_full.vcf.gz" |
     bcftools norm -a -d "none" |
     bcftools view -v "snps" -f "PASS" -O "z" |
-    bcftools filter -i "QUAL>=50" -O "z" > "${species_tree_dir}/${sample}_filtered.vcf.gz"
+    bcftools filter -i "QUAL>=30" -O "z" > "${species_tree_dir}/${sample}_filtered.vcf.gz"
     bcftools index -f "${species_tree_dir}/${sample}_filtered.vcf.gz"
 
     # ---- Consensus ----
+    # Written to a .tmp file first and only renamed on success, so a failed run
+    # never leaves a partial consensus that the next run would treat as done.
     log "Generating consensus sequence for $sample"
     bedtools genomecov -ibam "$bam" -bga | awk '$4 < 10' > "${species_tree_dir}/${sample}.bed"
-    if ! bcftools consensus -H A -f "$REF_FASTA" -m "${species_tree_dir}/${sample}.bed" "${species_tree_dir}/${sample}_filtered.vcf.gz" > "$consensus_fasta"; then
+    if ! bcftools consensus -H A -f "$REF_FASTA" -m "${species_tree_dir}/${sample}.bed" "${species_tree_dir}/${sample}_filtered.vcf.gz" > "${consensus_fasta}.tmp"; then
         log "❌ Consensus generation failed for $sample"
+        cleanup_sample "$sample"
         continue
     fi
-    sed -i "s/>.*$/>${sample}/" "$consensus_fasta"
+    sed -i "s/>.*$/>${sample}/" "${consensus_fasta}.tmp"
+    mv "${consensus_fasta}.tmp" "$consensus_fasta"
 
-    # Only the consensus fasta is needed downstream (alignment.fasta) - clean up
-    # everything else for this sample now to save space.
+    # Only the consensus fasta is needed downstream (alignment.fasta)
     log "Removing intermediate files for $sample"
-    rm -vf "$bam" "${bam}.bai" \
-           "${species_tree_dir}/${sample}_full.vcf.gz" \
-           "${species_tree_dir}/${sample}_filtered.vcf.gz" \
-           "${species_tree_dir}/${sample}_filtered.vcf.gz.csi" \
-           "${species_tree_dir}/${sample}.bed"
-    rm -vrf "${species_tree_dir}/clair3/${sample}"
+    cleanup_sample "$sample"
 
     log "✅ $sample done"
 done
@@ -269,7 +308,17 @@ step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 # and shouldn't gate whether this reference is considered "used".
 echo "$REF_SAMPLE" > "${species_tree_dir}/.reference_used"
 
-cat "${species_tree_dir}"/*_consensus.fasta > "${species_tree_dir}/alignment.fasta"
+# Build the alignment only from samples loaded (and successfully processed)
+# this run, so stray consensus files never end up in the tree.
+: > "${species_tree_dir}/alignment.fasta"
+for sample in "${SAMPLES[@]}"; do
+    consensus_fasta="${species_tree_dir}/${sample}_consensus.fasta"
+    if [[ -s "$consensus_fasta" ]]; then
+        cat "$consensus_fasta" >> "${species_tree_dir}/alignment.fasta"
+    else
+        log "⚠️ No consensus for $sample - not included in alignment"
+    fi
+done
 
 # ---------------------------- STEP 3: Recombination filtering + tree ----------------------------
 step="recombination"; step_start=$(date +%s)
