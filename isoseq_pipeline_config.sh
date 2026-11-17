@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline Config v0.9
+# Isolate Sequencing Pipeline Config v1.0
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -17,6 +17,7 @@ MLST_DB="/data/IsoSeq/databases/mlst/pubmlst/"
 ENV_MLST="mlst_contigs"
 ENV_GUBBINS="gubbins"
 ENV_CLAIR3="clair3"
+ENV_CHROQUETAS="chroquetas"
 
 # ----------------------- DICTIONARIES --------------------------
 declare -A species_dict_read_mlst=(
@@ -69,6 +70,7 @@ declare -A species_dict_amrfinder=(
     ["Streptococcus pneumoniae"]="Streptococcus_pneumoniae"
     ["Klebsiella aerogenes"]="Klebsiella_pneumoniae"
     ["Corynebacterium diphtheriae"]="Corynebacterium_diphtheriae"
+    ["Candidozyma auris"]="Candidozyma_auris"
 )
 
 declare -A species_dict_busco=(
@@ -87,6 +89,7 @@ declare -A species_dict_busco=(
     ["Klebsiella aerogenes"]="enterobacteriaceae_odb12"
     ["Corynebacterium diphtheriae"]="corynebacterium_odb12"
     ["Listeria monocytogenes"]="listeria_odb12"
+    ["Candidozyma auris"]="debaryomycetaceae_odb12"
 )
 
 declare -A species_dict_size=(
@@ -105,4 +108,5 @@ declare -A species_dict_size=(
     ["Klebsiella aerogenes"]="5.3m"
     ["Corynebacterium diphtheriae"]="2.5m"
     ["Listeria monocytogenes"]="2.9m"
+    ["Candidozyma auris"]="12.4m"
 )
