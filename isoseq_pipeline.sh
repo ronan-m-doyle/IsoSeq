@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Master Pipeline v0.9
+# Isolate Sequencing Master Pipeline v1.0
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 

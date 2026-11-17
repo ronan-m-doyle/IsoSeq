@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.9 - Phylogenetic analysis stage - (Trees)
+# Isolate Sequencing Pipeline v1.0 - Phylogenetic analysis stage - (Trees)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
