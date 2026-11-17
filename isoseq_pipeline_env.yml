@@ -25,6 +25,6 @@ dependencies:
   - myloasm=0.6.0
   - core-snp-filter=0.2.0
   - ncbi-amrfinderplus=4.2.7
-  - raven=1.8.3
+  - raven-assembler=1.8.3
   - auriclass=0.5.4
 prefix: $HOME/miniforge3
