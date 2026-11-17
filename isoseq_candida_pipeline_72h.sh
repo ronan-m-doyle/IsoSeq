@@ -178,7 +178,7 @@ process_sample() {
         if ! auriclass -n "$sample" -o "${sample_dir}/auriclass_report.tsv" --log_file_path "${sample_dir}/logs/auriclass_log.txt" --verbose --fasta "${sample_dir}/assemblies/${sample}.fasta"; then
             log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
         fi
-        clade=$(awk '{print $2; exit}' "${sample_dir}/auriclass_report.tsv")
+        clade=$(awk '{print $3; exit}' "${sample_dir}/auriclass_report.tsv")
         log "C. auris clade: ${clade}"
         step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
     fi

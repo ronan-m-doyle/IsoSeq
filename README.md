@@ -13,9 +13,14 @@ mamba create -n gubbins -c bioconda gubbins=3.4.3
 mamba create -n clair3 -c bioconda clair3=1.2.0
 mamba create -n chroquetas -c bioconda -c nmquijada chroquetas=1.0.1
 
+git clone https://github.com/rrwick/Porechop.git
+cd Porechop
+make
+./porechop-runner.py -h
+
 wget "https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_16_GB_20251015.tar.gz"
-mkdir kraken_reference_16/
-tar -xzvf k2_pluspf_16_GB_20251015.tar.gz -C kraken_reference_16/
+mkdir databases/kraken_reference_16/
+tar -xzvf k2_pluspf_16_GB_20251015.tar.gz -C databases/kraken_reference_16/
 rm k2_pluspf_16_GB_20251015.tar.gz
 ```
 
