@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.9 - 8h stage - (Initial read-based MLST and AMR)
+# Isolate Sequencing Pipeline v1.0 - 8h stage - (Initial read-based MLST and AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -80,11 +80,14 @@ process_sample() {
     log "▶ Step $step"
     mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
     fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split; then
+    if ! porechop -i "$fq" -o "${sample_dir}/${sample}_trimmed.fastq.gz" -t "$THREADS" --no_split; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
-    NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"
-    rm -vf "$fq"
+    cp -v "${sample_dir}/${sample}_trimmed.fastq.gz" "$out_trim" # Copy porechop trimmed and demultiplexed fastq to trimmed dir
+    if ! NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+    fi
+    rm -vf "${sample_dir}/${sample}_trimmed.fastq.gz" # Clean up leftover fastq
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 3: Kraken2 ----------------

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------
-# Isolate Sequencing Pipeline v0.9 - 72h stage - (Assembly, QC, MLST, AMR)
+# Isolate Sequencing Pipeline v1.0 - 72h stage - (Assembly, QC, MLST, AMR)
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
@@ -88,11 +88,14 @@ process_sample() {
     log "▶ Step $step"
     mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
     fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "$out_trim" -t "$THREADS" --no_split; then
+    if ! porechop -i "$fq" -o "${sample_dir}/${sample}_trimmed.fastq.gz" -t "$THREADS" --no_split; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
-    NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"
-    rm -vf "$fq"
+    cat "${sample_dir}/${sample}_trimmed.fastq.gz" "/data/IsoSeq_results/${sample}/48h/trimmed/${sample}.fastq.gz" > "$out_trim" # concat prev timepoint trimmed with latest
+    if ! NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"; then
+        log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
+    fi
+    rm -vf "${sample_dir}/${sample}_trimmed.fastq.gz" # Clean up leftover fastqs
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 3: Assembly ----------------
