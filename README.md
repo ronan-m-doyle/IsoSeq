@@ -1,5 +1,5 @@
 # IsoSeq
-Bacterial isolate sequencing bioinformatics pipeline.
+Bacterial and Candida isolate sequencing bioinformatics pipeline.
 
 ## Install
 
@@ -8,14 +8,15 @@ git clone https://github.com/ronan-m-doyle/IsoSeq.git
 cd IsoSeq/
 
 mamba env create -f isoseq_pipeline_env.yml -n isoseq_pipeline
-mamba create -n mlst_contigs -c conda-forge -c bioconda mlst
-mamba create -n gubbins -c bioconda gubbins
-mamba create -n clair3 -c bioconda clair3
+mamba create -n mlst_contigs -c conda-forge -c bioconda mlst=2.32.2
+mamba create -n gubbins -c bioconda gubbins=3.4.3
+mamba create -n clair3 -c bioconda clair3=1.2.0
+mamba create -n chroquetas -c bioconda -c nmquijada chroquetas=1.0.1
 
-wget "https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_08_GB_20251015.tar.gz"
-mkdir kraken_reference/
-tar -xzvf k2_pluspf_08_GB_20251015.tar.gz -C kraken_reference/
-rm k2_pluspf_08_GB_20251015.tar.gz
+wget "https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_16_GB_20251015.tar.gz"
+mkdir kraken_reference_16/
+tar -xzvf k2_pluspf_16_GB_20251015.tar.gz -C kraken_reference_16/
+rm k2_pluspf_16_GB_20251015.tar.gz
 ```
 
 ## Run
