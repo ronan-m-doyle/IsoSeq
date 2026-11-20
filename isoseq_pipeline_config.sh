@@ -4,14 +4,16 @@
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # -------------------------- CONFIG ----------------------------
-KRAKEN2_DB="/data/IsoSeq/databases/kraken_reference_16/"
-PY_KRAKEN_SUMMARY="/data/IsoSeq/scripts/kraken2_top5_species.py"
+KRAKEN2_DB="${SCRIPT_DIR}/databases/kraken_reference_16/"
+PY_KRAKEN_SUMMARY="${SCRIPT_DIR}/scripts/kraken2_top5_species.py"
 TREE_BASE="/data/IsoSeq_results/trees/"
-KROCUS_DB="/data/IsoSeq/databases/mlst_krocus/"
+KROCUS_DB="${SCRIPT_DIR}/databases/mlst_krocus/"
 CLAIR3_MODEL="${HOME}/miniforge3/envs/clair3/bin/models/r1041_e82_400bps_sup_v500/"
-MLST_BLAST_DB="/data/IsoSeq/databases/mlst/blast/mlst.fa"
-MLST_DB="/data/IsoSeq/databases/mlst/pubmlst/"
+MLST_BLAST_DB="${SCRIPT_DIR}/databases/mlst/blast/mlst.fa"
+MLST_DB="${SCRIPT_DIR}/databases/mlst/pubmlst/"
 
 # -------------------------- ENVS -------------------------------
 ENV_MLST="mlst_contigs"
