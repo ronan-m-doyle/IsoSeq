@@ -17,6 +17,8 @@ git clone https://github.com/rrwick/Porechop.git
 cd Porechop
 make
 ./porechop-runner.py -h
+cd ..
+cp scripts/adapters.py Porechop/porechop/
 
 wget "https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_16_GB_20251015.tar.gz"
 mkdir databases/kraken_reference_16/
