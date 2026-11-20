@@ -4,7 +4,8 @@
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
-source "$(dirname "$0")/isoseq_pipeline_config.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/isoseq_pipeline_config.sh"
 
 SAMPLESHEET="$1"
 THREADS="$2"
@@ -88,28 +89,28 @@ process_sample() {
     log "▶ Step $step"
     mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
     fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "${sample_dir}/${sample}_trimmed.fastq.gz" -t "$THREADS" --no_split; then
+    if ! python ${SCRIPT_DIR}/Porechop/porechop-runner.py -i "$fq" -b "${sample_dir}" -t "$THREADS" --no_split --discard_unassigned; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
-    cat "${sample_dir}/${sample}_trimmed.fastq.gz" "/data/IsoSeq_results/${sample}/48h/trimmed/${sample}.fastq.gz" > "$out_trim" # concat prev timepoint trimmed with latest
+    cat "${sample_dir}/BC${barcode}.fastq.gz" "/data/IsoSeq_results/${sample}/24h/trimmed/${sample}.fastq.gz" > "$out_trim" # concat prev timepoint trimmed with latest
     if ! NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
-    rm -vf "${sample_dir}/${sample}_trimmed.fastq.gz" # Clean up leftover fastqs
+    rm -vf "${sample_dir}/BC${barcode}.fastq.gz" # Clean up leftover fastq
+    rm -vf "${sample_dir}/${sample}.fastq.gz" # Clean up leftover fastq
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
-
     # ---------------- STEP 3: Assembly ----------------
     step="assembly"; step_start=$(date +%s)
     log "▶ Step $step"
     outdir="${sample_dir}/assemblies"; mkdir -p "$outdir"
     if [[ "$organism" == "Unknown" ]]; then
         log "ℹ️ Organism marked Unknown — running assembly without genome size estimate (-s)"
-        if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+        if ! bash ${SCRIPT_DIR}/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
             log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
         fi
     else
         size="${species_dict_size[$organism]}"
-        if ! bash /data/IsoSeq/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -s "$size" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
+        if ! bash ${SCRIPT_DIR}/scripts/autoautocycler.sh -o "$outdir/" -t "$THREADS" -c "2" -s "$size" -a "metamdbg myloasm" "${sample_dir}/trimmed/${sample}.fastq.gz"; then
             log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
         fi
     fi
@@ -178,7 +179,7 @@ process_sample() {
         if ! auriclass -n "$sample" -o "${sample_dir}/auriclass_report.tsv" --log_file_path "${sample_dir}/logs/auriclass_log.txt" --verbose --fasta "${sample_dir}/assemblies/${sample}.fasta"; then
             log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
         fi
-        clade=$(awk '{print $3; exit}' "${sample_dir}/auriclass_report.tsv")
+        clade=$(awk -F'\t' 'NR>1 {print $2}' "${sample_dir}/auriclass_report.tsv")
         log "C. auris clade: ${clade}"
         step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
     fi

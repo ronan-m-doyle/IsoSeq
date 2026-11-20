@@ -4,7 +4,8 @@
 # ----------------------------------------------------------------------
 IFS=$'\n\t'
 
-source "$(dirname "$0")/isoseq_pipeline_config.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/isoseq_pipeline_config.sh"
 
 SAMPLESHEET="$1"
 THREADS="$2"
@@ -87,14 +88,15 @@ process_sample() {
     log "▶ Step $step"
     mkdir -p ${sample_dir}/trimmed ${sample_dir}/qc
     fq="${sample_dir}/${sample}.fastq.gz"; out_trim="${sample_dir}/trimmed/${sample}.fastq.gz"
-    if ! porechop -i "$fq" -o "${sample_dir}/${sample}_trimmed.fastq.gz" -t "$THREADS" --no_split; then
+    if ! python ${SCRIPT_DIR}/Porechop/porechop-runner.py -i "$fq" -b "${sample_dir}" -t "$THREADS" --no_split --discard_unassigned; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
-    cat "${sample_dir}/${sample}_trimmed.fastq.gz" "/data/IsoSeq_results/${sample}/8h/trimmed/${sample}.fastq.gz" > "$out_trim" # concat prev timepoint trimmed with latest
+    cat "${sample_dir}/BC${barcode}.fastq.gz" "/data/IsoSeq_results/${sample}/8h/trimmed/${sample}.fastq.gz" > "$out_trim" # concat prev timepoint trimmed with latest
     if ! NanoStat --fastq "$out_trim" -n "${sample_dir}/qc/${sample}_nanostat.txt" -t "$THREADS"; then
         log "❌ Step $step failed"; status="FAILED"; failed_step="$step"; echo -e "${sample}\t${status}\t${failed_step}\t-" >> "${MASTER_SUMMARY}"; return
     fi
-    rm -vf "${sample_dir}/${sample}_trimmed.fastq.gz" # Clean up leftover fastqs
+    rm -vf "${sample_dir}/BC${barcode}.fastq.gz" # Clean up leftover fastq
+    rm -vf "${sample_dir}/${sample}.fastq.gz" # Clean up leftover fastq
     step_end=$(date +%s); log "✅ Step $step done in $((step_end-step_start))s"
 
     # ---------------- STEP 3: Assembly ----------------
